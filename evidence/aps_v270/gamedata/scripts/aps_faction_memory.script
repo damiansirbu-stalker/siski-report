@@ -1,0 +1,211 @@
+--- aps_faction_memory: Faction-level intelligence and memory
+---
+--- Expands the tension system with:
+---   - Specific event memory ("Freedom killed our elite near Army Warehouses")
+---   - Intel sharing ("Duty spotted a rich loner near Garbage")  
+---   - Threat assessment per faction ("Bandits are the biggest threat to us")
+---   - Location danger memory ("We lost 3 squads near Red Forest")
+---
+--- This creates emergent faction politics. Factions share intel about
+--- wealthy targets, coordinate responses to threats, and avoid areas
+--- where they've suffered losses.
+---
+--- Persisted across saves. Builds over multiple sessions.
+
+local type, pairs, tostring, ipairs, math_min = type, pairs, tostring, ipairs, math.min
+local RegisterScriptCallback = RegisterScriptCallback
+
+local CALLBACK = ap_const.CALLBACK
+
+--- Per-faction memory
+local _memory = {}
+local MAX_EVENTS_PER_FACTION = 20
+local MAX_INTEL_ITEMS = 10
+local INTEL_TTL_GAME_SEC = 7200
+
+-- ============================================================================
+-- Public API
+-- ============================================================================
+
+--- Record a significant event in a faction's memory
+--- @param faction string Faction that experienced the event
+--- @param event_type string "loss"|"kill"|"robbery"|"sighting"|"vendetta"
+--- @param details table { location, level_id, target_faction, description }
+function record_event(faction, event_type, details)
+    if not faction then return end
+    if not _memory[faction] then
+        _memory[faction] = { events = {}, intel = {}, danger_levels = {} }
+    end
+    local mem = _memory[faction]
+    local event = {
+        type = event_type,
+        at = xtime.game_sec(),
+        details = details or {},
+    }
+    mem.events[#mem.events + 1] = event
+
+    --- Trim to max
+    while #mem.events > MAX_EVENTS_PER_FACTION do
+        table.remove(mem.events, 1)
+    end
+
+    --- Update danger level for the location
+    if details and details.level_id and (event_type == "loss" or event_type == "kill") then
+        local lvl = tostring(details.level_id)
+        mem.danger_levels[lvl] = (mem.danger_levels[lvl] or 0) + 1
+    end
+
+    _aps_log.info("[FACTION_MEM] %s recorded: %s at level=%s (total=%d events)",
+        faction, event_type, tostring(details and details.level_id), #mem.events)
+end
+
+--- Share intel between factions (e.g., "rich target spotted near X")
+--- @param from_faction string Faction sharing the intel
+--- @param intel_type string "wealthy_target"|"enemy_movement"|"danger_zone"
+--- @param data table Intel payload { level_id, target_id, wealth, description }
+function share_intel(from_faction, intel_type, data)
+    if not from_faction or not data then return end
+
+    --- Share with allied or same factions
+    local recipients = _get_allied_factions(from_faction)
+    for _, faction in ipairs(recipients) do
+        if not _memory[faction] then
+            _memory[faction] = { events = {}, intel = {}, danger_levels = {} }
+        end
+        local mem = _memory[faction]
+        mem.intel[#mem.intel + 1] = {
+            type = intel_type,
+            from = from_faction,
+            at = xtime.game_sec(),
+            data = data,
+        }
+        while #mem.intel > MAX_INTEL_ITEMS do
+            table.remove(mem.intel, 1)
+        end
+    end
+
+    _aps_log.info("[FACTION_MEM] intel shared by %s: %s to %d factions",
+        from_faction, intel_type, #recipients)
+end
+
+--- Get recent intel for a faction (within TTL)
+--- @param faction string
+--- @param intel_type string|nil Filter by type (nil = all)
+--- @return table Array of intel items
+function get_intel(faction, intel_type)
+    if not _memory[faction] then return {} end
+    local mem = _memory[faction]
+    local now = xtime.game_sec()
+    local result = {}
+    for i = #mem.intel, 1, -1 do
+        local item = mem.intel[i]
+        if (now - item.at) > INTEL_TTL_GAME_SEC then break end
+        if not intel_type or item.type == intel_type then
+            result[#result + 1] = item
+        end
+    end
+    return result
+end
+
+--- Get a faction's assessment of how dangerous a level is
+--- @param faction string
+--- @param level_id number
+--- @return number danger_level (0 = safe, higher = more losses there)
+function get_level_danger(faction, level_id)
+    if not _memory[faction] then return 0 end
+    return _memory[faction].danger_levels[tostring(level_id)] or 0
+end
+
+--- Get factions allied or neutral to a given faction
+--- Uses game_relations if available, otherwise returns same faction only
+function _get_allied_factions(faction)
+    local result = { faction }
+    if not game_relations or not game_relations.is_factions_enemies then return result end
+    local all_factions = { "stalker", "bandit", "dolg", "freedom", "csky", "ecolog",
+        "killer", "army", "monolith", "renegade", "greh", "isg" }
+    for _, f in ipairs(all_factions) do
+        if f ~= faction then
+            local ok, enemies = pcall(game_relations.is_factions_enemies, faction, f)
+            if ok and not enemies then
+                result[#result + 1] = f
+            end
+        end
+    end
+    return result
+end
+
+-- ============================================================================
+-- Event listeners: auto-record from AP causes
+-- ============================================================================
+
+local function _subscribe()
+    --- Record faction losses from squadkill
+    xbus.subscribe(ap_const.CAUSE.SQUADKILL, function(event_data)
+        if type(event_data) ~= "table" then return end
+        local victim_faction = event_data.victim_community or event_data.faction
+        local killer_faction = event_data.killer_community
+        if victim_faction then
+            record_event(victim_faction, "loss", {
+                level_id = event_data.level_id,
+                target_faction = killer_faction,
+            })
+        end
+        if killer_faction then
+            record_event(killer_faction, "kill", {
+                level_id = event_data.level_id,
+                target_faction = victim_faction,
+            })
+        end
+    end, "aps_faction_memory_squadkill")
+
+    --- Share wealthy target intel when wealth cause fires
+    xbus.subscribe(_aps_const.CAUSE.WEALTHY, function(event_data)
+        if type(event_data) ~= "table" then return end
+        if not event_data.community then return end
+        --- The faction that SEES the wealthy target shares intel with enemies
+        --- (enemy factions want to know about rich targets to rob)
+        local all_factions = { "bandit", "renegade", "greh", "isg", "killer" }
+        for _, faction in ipairs(all_factions) do
+            if faction ~= event_data.community then
+                share_intel(event_data.community, "wealthy_target", {
+                    level_id = event_data.level_id,
+                    wealth = event_data.wealth_score,
+                    target_is_player = event_data.target_is_player,
+                })
+            end
+        end
+    end, "aps_faction_memory_wealthy")
+
+    _aps_log.info("[FACTION_MEM] Subscribed to AP events")
+end
+
+-- ============================================================================
+-- Save/Load
+-- ============================================================================
+
+local function _on_save(m_data)
+    m_data.aps_faction_memory = _memory
+    local faction_count = xtable.count(_memory)
+    _aps_log.info("[FACTION_MEM] saved %d factions", faction_count)
+end
+
+local function _on_load(m_data)
+    _memory = {}
+    if m_data.aps_faction_memory and type(m_data.aps_faction_memory) == "table" then
+        _memory = m_data.aps_faction_memory
+    end
+    _aps_log.info("[FACTION_MEM] loaded %d factions", xtable.count(_memory))
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+function on_game_start()
+    _memory = {}
+    RegisterScriptCallback(CALLBACK.SAVE_STATE, _on_save)
+    RegisterScriptCallback(CALLBACK.LOAD_STATE, _on_load)
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, _subscribe)
+    _aps_log.info("[APS.FACTION_MEM] Initialized")
+end
+if printf then printf('[APS] aps_faction_memory loaded') end

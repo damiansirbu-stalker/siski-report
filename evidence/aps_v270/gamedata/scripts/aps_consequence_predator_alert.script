@@ -1,0 +1,141 @@
+--- aps_consequence_predator_alert: Stalkers react to predator mutant presence
+--- Small/weak squads flee to nearest base. Sends PDA warning to player.
+local RESULT = ap_const.RESULT
+local REASON = ap_const.REASON
+local CAUSE = _aps_const.CAUSE
+local CONSEQUENCE = _aps_const.CONSEQUENCE
+local ACTION = ap_const.ACTION
+
+local cfg
+
+local function _handler(event_data)
+    local trace = event_data._trace
+    return ap_debug.observe(trace, CONSEQUENCE.PREDATOR_ALERT, function()
+        if not cfg.consequence_predator_alert_enabled then 
+            _aps_log.info("[PREDATOR_ALERT] DISABLED (MCM off)")
+            return { code = RESULT.DISABLED_NEXT } end
+        local adj_chance = aps_difficulty.adjust_chance(cfg.consequence_predator_alert_chance, "predator")
+        if not xmath.chance(adj_chance) then return { code = RESULT.CHANCE_NEXT } end
+
+        local position, level_id = event_data.position, event_data.level_id
+        if not position then return { code = RESULT.RULES_NEXT, reason = REASON.NO_POS } end
+
+        --- Find nearby stalker squads that should flee
+        local prey_squads = ap_utils.find_squads_observed(trace, position, {
+            factions = ap_data.community_stalker,
+            max_distance = cfg.cause_predator_detect_radius,
+            level_id = level_id,
+            max_count = cfg.consequence_predator_alert_max_squads,
+            exclude_unscriptable = true,
+            exclude_squad_id = event_data.squad_id,
+        })
+        if #prey_squads == 0 then return { code = RESULT.RULES_NEXT, reason = REASON.NO_SQUAD } end
+
+        --- Find nearest safe location for fleeing
+        local flee_smart = ap_utils.find_smart_observed(trace, position, {
+            level_id = level_id,
+            filter = function(smart)
+                return xsmart.is_base(smart) or xsmart.has_surge_shelter(smart)
+            end,
+        })
+        if not flee_smart then return { code = RESULT.RULES_NEXT, reason = REASON.NO_BASE } end
+
+        --- Script prey to flee
+        local moved = {}
+        ap_debug.observe(trace, ACTION.MOVE_SQUAD, function()
+            for _, prey in ipairs(prey_squads) do
+                --- Personality-driven: brave/aggressive squads stand and fight
+                if not aps_risk_eval.should_flee_predator(prey.id) then
+                    _aps_log.info("[PREDATOR_ALERT] STAND_FIGHT: sq=%d (brave personality)", prey.id)
+                    goto continue
+                end
+                local res = ap_alife_tracker.script_squad(prey, flee_smart, {
+                    rush = true,
+                })
+                if res and res.code == RESULT.OK_NEXT then
+                    moved[#moved + 1] = prey
+                end
+                ::continue::
+            end
+            return ap_debug.result_squads(moved, { dst_id = flee_smart.id })
+        end)
+
+        if #moved == 0 then return { code = RESULT.RULES_NEXT, reason = REASON.MOVE_FAILED } end
+
+        for _, prey in ipairs(moved) do
+        end
+
+        ap_debug.observe(trace, ACTION.SEND_PDA, function()
+            local location = ap_utils.get_location_description(nil, position, level_id)
+            return ap_utils.send_pda(cfg.consequence_predator_alert_pda_chance,
+                "text_pda_consequence_predator_alert", {
+                    location = location,
+                    predator_count = event_data.predator_count,
+                })
+        end)
+
+        return ap_debug.result_squads(moved, {
+            code = RESULT.OK_STOP,
+            reason = #moved .. "_fleeing",
+            dst_id = flee_smart.id,
+            threat = event_data.threat_level,
+        })
+    end)
+end
+
+--- Predator flee consequence: nearby weak squads scatter away from predators
+local function _handler_flee(event_data)
+    local trace = event_data._trace
+    return ap_debug.observe(trace, CONSEQUENCE.PREDATOR_FLEE, function()
+        if not cfg.consequence_predator_flee_enabled then 
+            _aps_log.info("[PREDATOR_ALERT] DISABLED (MCM off)")
+            return { code = RESULT.DISABLED_NEXT } end
+        local adj_flee_chance = aps_difficulty.adjust_chance(cfg.consequence_predator_flee_chance, "predator")
+        if not xmath.chance(adj_flee_chance) then return { code = RESULT.CHANCE_NEXT } end
+
+        --- Only high threat triggers flee (multiple predators or elite predator)
+        if (event_data.threat_level or 0) < 3 then
+            return { code = RESULT.RULES_NEXT, reason = "low_threat" }
+        end
+
+        --- The cause squad itself flees to nearest base
+        local squad = xobject.se(event_data.squad_id)
+        if not squad then return { code = RESULT.RULES_NEXT, reason = REASON.NO_SQUAD } end
+
+        local flee_smart = ap_utils.find_smart_observed(trace, event_data.position, {
+            level_id = event_data.level_id,
+            filter = xsmart.is_base,
+        })
+        if not flee_smart then return { code = RESULT.RULES_NEXT, reason = REASON.NO_BASE } end
+
+        local res
+        ap_debug.observe(trace, ACTION.MOVE_SQUAD, function()
+            res = ap_alife_tracker.script_squad(squad, flee_smart, { rush = true })
+            return res
+        end)
+
+        if not res or res.code ~= RESULT.OK_NEXT then
+            return { code = RESULT.RULES_NEXT, reason = REASON.MOVE_FAILED }
+        end
+
+
+        return { code = RESULT.OK_NEXT, id = squad.id, dst_id = flee_smart.id }
+    end)
+end
+
+function on_game_start()
+    cfg = aps_mcm.cfg
+    ap_consumer.register(CONSEQUENCE.PREDATOR_ALERT, {
+        event = CAUSE.PREDATOR,
+        priority = 10,
+        condition = function() return cfg.consequence_predator_alert_enabled end,
+    }, _handler)
+
+    ap_consumer.register(CONSEQUENCE.PREDATOR_FLEE, {
+        event = CAUSE.PREDATOR,
+        priority = 20,
+        condition = function() return cfg.consequence_predator_flee_enabled end,
+    }, _handler_flee)
+
+    _aps_log.info("[CONSEQUENCE.PREDATOR_ALERT] Initialized (alert + flee)")
+end

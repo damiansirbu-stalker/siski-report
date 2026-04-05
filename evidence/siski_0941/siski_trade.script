@@ -1,0 +1,497 @@
+siski = siski or {}
+siski.trade = siski.trade or {}
+
+local trade = siski.trade
+
+local _G = _G
+local pcall = _G.pcall
+local next = _G.next
+local tonumber = _G.tonumber
+local tostring = _G.tostring
+local type = _G.type
+local pairs = _G.pairs
+local string = _G.string
+local time_global = _G.time_global
+
+local function tg()
+    return (time_global and time_global()) or 0
+end
+
+local function cfg_num(key, default, min_v)
+    local v = tonumber(default) or 0
+    if siski.config and siski.config.get then
+        local x = siski.config.get(key, default)
+        if tonumber(x) then
+            v = tonumber(x)
+        end
+    end
+    if min_v ~= nil and v < min_v then
+        v = min_v
+    end
+    return v
+end
+
+local function get_board()
+    if _G.SIMBOARD then return _G.SIMBOARD end
+    if _G.sim_board and _G.sim_board.get_sim_board then
+        local ok, b = pcall(function() return _G.sim_board.get_sim_board() end)
+        if ok then return b end
+    end
+    return nil
+end
+
+local function safe_obj_by_id(id)
+    if not id then return nil end
+    if _G.level and _G.level.object_by_id then
+        local ok, obj = pcall(function() return _G.level.object_by_id(id) end)
+        if ok and obj then return obj end
+    end
+    local st = _G.db and _G.db.storage and _G.db.storage[id]
+    return st and st.object or nil
+end
+
+local no_trade_comm = {
+    zombied = true,
+    army = true,
+    monolith = true,
+    greh = true,
+    isg = true,
+}
+
+local RUNTIME = {
+    surge_cache_active = false,
+    surge_cache_next_tg = 0,
+    perf_warn_next_tg = {},
+}
+
+local function perf_warn_once(key, fmt, ...)
+    if not (siski.log and siski.log.warn) then return end
+    local now = tg()
+    local interval = cfg_num("perf_warn_interval_ms", 10000, 1000)
+    local next_tg = tonumber(RUNTIME.perf_warn_next_tg[key]) or 0
+    if now < next_tg then return end
+    RUNTIME.perf_warn_next_tg[key] = now + interval
+    siski.log.warn("PERF", fmt, ...)
+end
+
+local function trade_warn_once(key, fmt, ...)
+    if not (siski.log and siski.log.warn) then return end
+    local now = tg()
+    local interval = cfg_num("perf_warn_interval_ms", 10000, 1000)
+    local bucket = "TRADE_" .. tostring(key)
+    local next_tg = tonumber(RUNTIME.perf_warn_next_tg[bucket]) or 0
+    if now < next_tg then return end
+    RUNTIME.perf_warn_next_tg[bucket] = now + interval
+    siski.log.warn("TRADE", fmt, ...)
+end
+
+local function surge_started_uncached()
+    local xc = _G.xr_conditions
+    local xf = xc and xc.surge_started or nil
+    if type(xf) == "function" then
+        local ok, res = pcall(xf)
+        if ok and res == true then return true, false end
+        if ok and res == false then return false, false end
+    end
+
+    local fallback_used = false
+
+    local f = _G.surge_started
+    if type(f) == "function" then
+        fallback_used = true
+        local ok, res = pcall(f)
+        if ok and res == true then return true, fallback_used end
+        if ok and res == false then return false, fallback_used end
+    end
+
+    local psm = _G.psi_storm_manager
+    if psm and type(psm.is_loaded) == "function" and type(psm.is_started) == "function" then
+        fallback_used = true
+        local okL, loaded = pcall(function() return psm.is_loaded() end)
+        if okL and loaded == true then
+            local okS, started = pcall(function() return psm.is_started() end)
+            if okS and started == true then return true, fallback_used end
+        end
+    end
+
+    local sm = _G.surge_manager
+    if sm and type(sm.is_loaded) == "function" and type(sm.is_started) == "function" then
+        fallback_used = true
+        local okL, loaded = pcall(function() return sm.is_loaded() end)
+        if okL and loaded == true then
+            local okS, started = pcall(function() return sm.is_started() end)
+            if okS and started == true then return true, fallback_used end
+        end
+    end
+
+    if _G.level and type(_G.level.is_surge) == "function" then
+        fallback_used = true
+        local ok, res = pcall(function() return _G.level.is_surge() end)
+        if ok and res == true then return true, fallback_used end
+    end
+    return false, fallback_used
+end
+
+local function is_surge_started(force_refresh)
+    local now = tg()
+    if force_refresh ~= true and now < (tonumber(RUNTIME.surge_cache_next_tg) or 0) then
+        return RUNTIME.surge_cache_active == true
+    end
+
+    local active, fallback_used = surge_started_uncached()
+    local cache_ms = cfg_num("surge_check_cache_ms", 250, 0)
+    RUNTIME.surge_cache_active = active == true
+    RUNTIME.surge_cache_next_tg = now + cache_ms
+
+    if fallback_used then
+        perf_warn_once("PERF_SURGE_CHECK_FALLBACK_TRADE", "PERF_SURGE_CHECK_FALLBACK source=trade")
+    end
+    return active == true
+end
+
+local function infer_seller_id_from_smart(smart)
+    if not smart then return nil end
+
+    local by_job = smart.npc_by_job_section
+    if type(by_job) == "table" then
+        local best = nil
+        for sec, nid in pairs(by_job) do
+            if type(sec) == "string" then
+                local s = string.lower(sec)
+                if string.find(s, "barman", 1, true) ~= nil then
+                    return tonumber(nid) or nil
+                end
+                if best == nil and (string.find(s, "trader", 1, true) ~= nil or string.find(s, "_trade_", 1, true) ~= nil) then
+                    best = tonumber(nid) or best
+                end
+            end
+        end
+        if best then return best end
+    end
+
+    local npc_info = smart.npc_info
+    if type(npc_info) == "table" then
+        local best = nil
+        for nid, info in pairs(npc_info) do
+            local se = info and info.se_obj or nil
+            if se and se.name then
+                local ok_n, nm = pcall(function() return se:name() end)
+                if ok_n and type(nm) == "string" then
+                    local s = string.lower(nm)
+                    if string.find(s, "_barman", 1, true) ~= nil then
+                        return tonumber(nid) or nil
+                    end
+                    if best == nil and string.find(s, "_trader", 1, true) ~= nil then
+                        best = tonumber(nid) or best
+                    end
+                end
+            end
+        end
+        if best then return best end
+    end
+
+    return nil
+end
+
+local function ensure_storage(npc_id, npc_obj)
+    if not (_G.db and _G.db.storage and npc_id) then return nil end
+    local st = _G.db.storage[npc_id]
+    if type(st) ~= "table" then
+        st = {}
+        _G.db.storage[npc_id] = st
+    end
+    if st.object == nil and npc_obj then
+        st.object = npc_obj
+    end
+    return st
+end
+
+local function prepare_trade_flags(leader_obj, params)
+    if not (leader_obj and params) then return nil end
+    local ok_id, leader_id = pcall(function() return leader_obj:id() end)
+    leader_id = ok_id and tonumber(leader_id) or nil
+    if not leader_id then return nil end
+
+    local st = ensure_storage(leader_id, leader_obj)
+    if not st then return nil end
+
+    if type(st.trade_items) ~= "table" then
+        st.trade_items = {}
+    end
+    st.has_items_to_sell = true
+
+    params.trade_intent_applied_tg = params.trade_intent_applied_tg or tg()
+    return true
+end
+
+local function is_trade_job(job)
+    if not (job and job.section) then return false end
+    local s = tostring(job.section)
+    if string.find(s, "_beh_trade_job_", 1, true) ~= nil then return true end
+    if string.find(s, "_beh_trade_", 1, true) ~= nil then return true end
+    if string.find(s, "_beh_tech_job_", 1, true) ~= nil then return true end
+    return false
+end
+
+local function is_trader_job(job)
+    if not (job and job.section) then return false end
+    local s = tostring(job.section)
+    if string.find(s, "_beh_trade_job_", 1, true) ~= nil then return true end
+    if string.find(s, "_beh_trade_", 1, true) ~= nil then return true end
+    return false
+end
+
+local function smart_has_trader_job_slot(smart)
+    local jobs = smart and smart.stalker_jobs or nil
+    if type(jobs) ~= "table" then
+        return false
+    end
+    for i = 1, #jobs do
+        if is_trader_job(jobs[i]) then
+            return true
+        end
+    end
+    return false
+end
+
+local function resolve_live_trader_for_trade_smart(smart, job)
+    if not smart then
+        return nil, nil
+    end
+
+    local seller_id = job and (tonumber(job.seller_id) or tonumber(job.seller)) or nil
+    local seller = seller_id and safe_obj_by_id(seller_id) or nil
+    if seller and siski.safe and siski.safe.is_alive and siski.safe.is_alive(seller) then
+        if job then
+            job.seller_id = seller_id
+        end
+        return seller, seller_id
+    end
+
+    seller_id = infer_seller_id_from_smart(smart)
+    seller = seller_id and safe_obj_by_id(seller_id) or nil
+    if seller and siski.safe and siski.safe.is_alive and siski.safe.is_alive(seller) then
+        if job then
+            job.seller_id = seller_id
+        end
+        return seller, seller_id
+    end
+
+    return nil, nil
+end
+
+local function evict_leader_from_trade_job(smart, leader_id)
+    leader_id = tonumber(leader_id)
+    if not (smart and leader_id) then
+        return false, "invalid"
+    end
+
+    local npc_info = smart.npc_info and (smart.npc_info[leader_id] or smart.npc_info[tostring(leader_id)]) or nil
+    if not npc_info then
+        return false, "no_npc_info"
+    end
+    if not is_trader_job(npc_info.job) then
+        return false, "not_trader_job"
+    end
+
+    local by_job = type(smart.npc_by_job_section) == "table" and smart.npc_by_job_section or nil
+    if by_job then
+        for sec, owner in pairs(by_job) do
+            if tonumber(owner) == leader_id and is_trader_job({ section = sec }) then
+                by_job[sec] = nil
+            end
+        end
+    end
+
+    npc_info.job = nil
+    return true, "evicted"
+end
+
+function trade.can_trade_now(se_squad)
+    if not se_squad then return false end
+    local comm = nil
+    if siski.safe and siski.safe.safe_squad_community then
+        comm = siski.safe.safe_squad_community(se_squad)
+    elseif _G.alife and se_squad.commander_id then
+        local ok_cid, cid = pcall(function() return se_squad:commander_id() end)
+        cid = ok_cid and tonumber(cid) or nil
+        if cid then
+            local ok_obj, se_commander = pcall(function() return _G.alife():object(cid) end)
+            if ok_obj and se_commander and se_commander.community then
+                local ok_c, c = pcall(function() return se_commander:community() end)
+                comm = ok_c and c or nil
+            end
+        end
+    end
+    if comm and no_trade_comm[tostring(comm)] then
+        return false
+    end
+    local ok, cid = pcall(function() return se_squad:commander_id() end)
+    return ok and tonumber(cid) ~= nil
+end
+
+function trade.tick(se_squad, entry, task)
+    if not (se_squad and entry and task and task.target) then
+        if siski.fast_trading and siski.fast_trading.on_trade_completed and entry and entry.squad_id then
+            siski.fast_trading.on_trade_completed(entry.squad_id, "FAILED")
+        end
+        return "FAILED"
+    end
+    local p = task.params or {}
+    task.params = p
+
+    local target = task.target
+    if p.trade_last_target ~= target then
+        p.trade_last_target = target
+        p.trade_intent_applied_tg = nil
+        p.trade_entered_job_logged = nil
+        p.trade_started_tg = nil
+        p.trade_started_idle = nil
+        p.trade_surge_was_active = nil
+        p.trade_no_trader_hard = nil
+        p.trade_no_trader_reason = nil
+        p.trade_job_evicted = nil
+        p.trade_done_state = nil
+    end
+
+    local board = get_board()
+    local smart = board and board.smarts_by_names and board.smarts_by_names[target] or nil
+    if not smart then return "NO_TRADER" end
+
+    local ok_cid, leader_id = pcall(function() return se_squad:commander_id() end)
+    leader_id = ok_cid and tonumber(leader_id) or nil
+    if not leader_id then return "OFFLINE" end
+
+    local leader = safe_obj_by_id(leader_id)
+    if not (leader and siski.safe and siski.safe.is_alive and siski.safe.is_alive(leader)) then
+        return "OFFLINE"
+    end
+
+    local info = smart.npc_info and (smart.npc_info[leader_id] or smart.npc_info[tostring(leader_id)]) or nil
+    local job = info and info.job or nil
+    local now = tg()
+
+    local surge = is_surge_started()
+    if surge then
+        p.trade_surge_was_active = true
+        return is_trade_job(job) and "TRADING" or "MEETING"
+    end
+    if p.trade_surge_was_active then
+        p.trade_surge_was_active = nil
+        p.trade_intent_applied_tg = now
+    end
+
+    local in_trade_job = is_trade_job(job)
+    local in_trader_job = is_trader_job(job)
+    local seller, seller_id = resolve_live_trader_for_trade_smart(smart, job)
+    local fast_trade_triggered = task and task.params and task.params.fast_trade_triggered == true
+
+    if in_trader_job and not seller then
+        local evicted, evict_reason = evict_leader_from_trade_job(smart, leader_id)
+        p.trade_no_trader_hard = true
+        p.trade_no_trader_reason = "no_live_trader"
+        p.trade_job_evicted = evicted == true
+        p.trade_started_tg = nil
+        p.trade_started_idle = nil
+        if evicted then
+            trade_warn_once("invalid_job_evict:" .. tostring(entry and entry.squad_id or leader_id) .. ":" .. tostring(target),
+                "TRADE_INVALID_JOB_EVICT sid=%s target=%s leader=%s reason=%s",
+                tostring(entry and entry.squad_id or "-"),
+                tostring(target or "-"),
+                tostring(leader_id or "-"),
+                tostring(evict_reason or "-"))
+        end
+        trade_warn_once("no_live_trader:" .. tostring(entry and entry.squad_id or leader_id) .. ":" .. tostring(target),
+            "TRADE_NO_LIVE_TRADER sid=%s target=%s leader=%s state=in_job seller_id=%s evicted=%s",
+            tostring(entry and entry.squad_id or "-"),
+            tostring(target or "-"),
+            tostring(leader_id or "-"),
+            tostring(seller_id or "-"),
+            tostring(evicted == true))
+        return "NO_TRADER"
+    end
+
+    if (not in_trade_job) and smart_has_trader_job_slot(smart) and not seller then
+        p.trade_no_trader_hard = true
+        p.trade_no_trader_reason = "no_live_trader"
+        p.trade_job_evicted = false
+        p.trade_started_tg = nil
+        p.trade_started_idle = nil
+        trade_warn_once("no_live_trader:" .. tostring(entry and entry.squad_id or leader_id) .. ":" .. tostring(target),
+            "TRADE_NO_LIVE_TRADER sid=%s target=%s leader=%s state=arrival seller_id=%s evicted=false",
+            tostring(entry and entry.squad_id or "-"),
+            tostring(target or "-"),
+            tostring(leader_id or "-"),
+            tostring(seller_id or "-"))
+        return "NO_TRADER"
+    end
+
+    if not in_trade_job then
+        if prepare_trade_flags(leader, p) == nil then
+            return "MEETING"
+        end
+
+        local since = tonumber(p.trade_intent_applied_tg) or now
+        local wait_ms = tonumber(p.trade_wait_job_ms) or 90000
+        if wait_ms < 10000 then wait_ms = 10000 end
+        if now >= (since + wait_ms) then
+            if siski.log and siski.log.warn then
+                siski.log.warn("TRADE", "no_trade_job_timeout sid=%s level=%s target=%s", tostring(entry and entry.squad_id or "-"), tostring(entry and entry.level or "-"), tostring(target))
+            end
+            return "NO_TRADER"
+        end
+        return "MEETING"
+    end
+
+    if job and job.seller_id == nil and seller_id then
+        job.seller_id = seller_id
+    end
+
+    if siski.log and siski.log.info and not p.trade_entered_job_logged then
+        p.trade_entered_job_logged = true
+        siski.log.info("TRADE", "entered_trade_job sid=%s level=%s target=%s job=%s", tostring(entry and entry.squad_id or "-"), tostring(entry and entry.level or "-"), tostring(target), tostring(job and job.section or "-"))
+    end
+    
+    -- Clear fast_trade_triggered flag when entering trade job
+    if fast_trade_triggered and task and task.params then
+        task.params.fast_trade_triggered = nil
+    end
+
+    -- Always mark trade start when entering trade job (idle is optional)
+    if not p.trade_started_tg then
+        p.trade_started_tg = now
+        local idle = job and job.idle or nil
+        if idle then
+            p.trade_started_idle = tonumber(idle)
+        end
+    end
+
+    local st = _G.db and _G.db.storage and _G.db.storage[leader_id] or nil
+    local cleared = false
+    if type(st) == "table" then
+        local ti = st.trade_items
+        local empty_items = ti == nil or (type(ti) == "table" and next(ti) == nil)
+        cleared = (st.has_items_to_sell ~= true) and empty_items
+    end
+
+    if p.trade_started_tg then
+        local grace_ms = tonumber(p.trade_done_grace_ms) or 2000
+        if grace_ms < 0 then grace_ms = 0 end
+        if cleared and now >= (tonumber(p.trade_started_tg) + grace_ms) then
+            if siski.fast_trading and siski.fast_trading.on_trade_completed then
+                siski.fast_trading.on_trade_completed(entry.squad_id, "DONE")
+            end
+            return "DONE"
+        end
+        local max_ms = tonumber(p.trade_max_duration_ms) or 60000
+        if max_ms < 5000 then max_ms = 5000 end
+        if now >= (tonumber(p.trade_started_tg) + max_ms) then
+            if siski.log and siski.log.warn then
+                siski.log.warn("TRADE", "trade_duration_timeout sid=%s level=%s target=%s", tostring(entry and entry.squad_id or "-"), tostring(entry and entry.level or "-"), tostring(target))
+            end
+            return "NO_TRADER"
+        end
+    end
+
+    return "TRADING"
+end

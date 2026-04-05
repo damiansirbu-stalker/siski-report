@@ -1,0 +1,395 @@
+--- aps_tension: Faction tension tracker
+--- Accumulates hostility between factions from AP reactive events.
+--- When tension exceeds a threshold, triggers vendetta responses:
+--- the aggrieved faction sends strike squads to known enemy positions.
+--- Tension decays over time. Persisted across saves.
+local pairs, type, tostring = pairs, type, tostring
+local math_min, math_max, math_floor = math.min, math.max, math.floor
+local RegisterScriptCallback = RegisterScriptCallback
+
+local CALLBACK = ap_const.CALLBACK
+local RESULT = ap_const.RESULT
+local REASON = ap_const.REASON
+local ACTION = ap_const.ACTION
+
+local cfg
+
+--- Tension table: _tension[victim_faction][aggressor_faction] = score
+local _tension = {}
+local _last_decay_at = 0
+
+local TENSION_MAX = 100
+local TENSION_DECAY_INTERVAL_SEC = 300
+local TENSION_DECAY_AMOUNT = 5
+
+--- Known enemy faction pairs (base game relations)
+--- Passive tension simulates off-screen Zone-wide warfare
+local _enemy_pairs = {
+    { "bandit",   "stalker" },  { "bandit",   "dolg" },     { "bandit",   "army" },
+    { "bandit",   "ecolog" },   { "bandit",   "csky" },
+    { "renegade", "stalker" },  { "renegade", "dolg" },     { "renegade", "army" },
+    { "renegade", "freedom" },  { "renegade", "csky" },
+    { "greh",     "stalker" },  { "greh",     "dolg" },     { "greh",     "army" },
+    { "greh",     "freedom" },  { "greh",     "ecolog" },   { "greh",     "csky" },
+    { "monolith", "stalker" },  { "monolith", "dolg" },     { "monolith", "army" },
+    { "monolith", "freedom" },  { "monolith", "ecolog" },   { "monolith", "csky" },
+    { "monolith", "bandit" },   { "monolith", "killer" },
+    { "isg",      "stalker" },  { "isg",      "dolg" },     { "isg",      "army" },
+    { "army",     "freedom" },  { "dolg",     "freedom" },
+    { "killer",   "stalker" },  { "killer",   "dolg" },     { "killer",   "army" },
+}
+
+local _last_passive_at = 0
+local PASSIVE_INTERVAL_SEC = 300  --- every 5 game-minutes (matches decay interval)
+
+--- Event weights: how much tension each AP cause adds
+local _cause_weights = {
+    ["cause:squadkill"] = 15,
+    ["cause:basekill"] = 25,
+    ["cause:massacre"] = 20,
+    ["cause:elitekill"] = 10,
+}
+
+-- ============================================================================
+-- Tension API
+-- ============================================================================
+
+--- Get tension between two factions (0 if none)
+--- @param victim_faction string Faction that was attacked
+--- @param aggressor_faction string Faction that attacked
+--- @return number 0-100
+function get_tension(victim_faction, aggressor_faction)
+    if not _tension[victim_faction] then return 0 end
+    return _tension[victim_faction][aggressor_faction] or 0
+end
+
+--- Get highest tension for a faction (who they hate most)
+--- @param faction string Faction to check
+--- @return string|nil enemy_faction, number tension
+function get_worst_enemy(faction)
+    if not _tension[faction] then return nil, 0 end
+    local worst_faction, worst_score = nil, 0
+    for enemy, score in pairs(_tension[faction]) do
+        if score > worst_score then
+            worst_faction = enemy
+            worst_score = score
+        end
+    end
+    return worst_faction, worst_score
+end
+
+--- Add tension between factions
+--- @param victim_faction string
+--- @param aggressor_faction string
+--- @param amount number
+local function _add_tension(victim_faction, aggressor_faction, amount)
+    if not victim_faction or not aggressor_faction then return end
+    if victim_faction == aggressor_faction then return end
+    if not _tension[victim_faction] then _tension[victim_faction] = {} end
+    local old = _tension[victim_faction][aggressor_faction] or 0
+    local new = math_min(TENSION_MAX, old + amount)
+    _tension[victim_faction][aggressor_faction] = new
+    _aps_log.info("[TENSION] %s attacked %s: %d -> %d (+%d)",
+        aggressor_faction, victim_faction, old, new, amount)
+    ap_debug.debug("[APS.TENSION] %s -> %s: %d -> %d (+%d)",
+        aggressor_faction, victim_faction, old, new, amount)
+end
+
+--- Decay all tension values
+local function _decay_tension()
+    local now = xtime.game_sec()
+    if now - _last_decay_at < TENSION_DECAY_INTERVAL_SEC then return end
+    _last_decay_at = now
+    for victim, enemies in pairs(_tension) do
+        for enemy, score in pairs(enemies) do
+            local decayed = math_max(0, score - TENSION_DECAY_AMOUNT)
+            if decayed <= 0 then
+                enemies[enemy] = nil
+            else
+                enemies[enemy] = decayed
+            end
+        end
+        if not next(enemies) then
+            _tension[victim] = nil
+        end
+    end
+end
+
+--- Generate passive tension between enemy factions (simulates off-screen warfare)
+--- The Zone is always fighting — you just don't see it all
+local function _generate_passive_tension()
+    local now = xtime.game_sec()
+    if now - _last_passive_at < PASSIVE_INTERVAL_SEC then return end
+    _last_passive_at = now
+
+    local generated = 0
+    for _, pair in ipairs(_enemy_pairs) do
+        --- 25% chance per pair per tick
+        if math.random() < 0.25 then
+            --- 4-12 points (enough to outpace 5-point decay)
+            local amount = math.random(4, 12)
+            --- Both directions: if bandits fight stalkers, both sides get tension
+            _add_tension(pair[1], pair[2], amount)
+            _add_tension(pair[2], pair[1], math.floor(amount * 0.7))
+            generated = generated + 1
+        end
+    end
+
+    if generated > 0 then
+        _aps_log.info("[TENSION] PASSIVE: %d faction conflicts simulated (off-screen warfare)", generated)
+    end
+end
+
+-- ============================================================================
+-- Event listeners: subscribe to AP causes and accumulate tension
+-- ============================================================================
+
+local function _on_squadkill(event_data)
+    if not event_data then return end
+    local victim_faction = event_data.victim_community or event_data.faction
+    local killer_faction = event_data.killer_community
+    if not killer_faction then
+        --- Try to resolve from killer squad
+        local killer_squad_id = event_data.killer_squad_id
+        if killer_squad_id then
+            local killer_squad = xobject.se(killer_squad_id)
+            if killer_squad then
+                killer_faction = xcreature.community(killer_squad.id)
+            end
+        end
+    end
+    if victim_faction and killer_faction then
+        local weight = _cause_weights["cause:squadkill"] or 15
+        _add_tension(victim_faction, killer_faction, weight)
+    end
+end
+
+local function _on_massacre(event_data)
+    if not event_data then return end
+    local faction = event_data.faction
+    if not faction then return end
+    --- Massacre tension applies broadly: all stalker factions get some tension toward the area's faction
+    local weight = _cause_weights["cause:massacre"] or 20
+    for community in pairs(ap_data.community_stalker) do
+        if community ~= faction then
+            _add_tension(community, faction, math_floor(weight / 3))
+        end
+    end
+end
+
+local function _on_basekill(event_data)
+    if not event_data then return end
+    local victim_faction = event_data.faction or event_data.victim_community
+    local killer_faction = event_data.killer_community
+    if victim_faction and killer_faction then
+        local weight = _cause_weights["cause:basekill"] or 25
+        _add_tension(victim_faction, killer_faction, weight)
+    end
+end
+
+local function _subscribe_to_causes()
+    xbus.subscribe(ap_const.CAUSE.SQUADKILL, _on_squadkill, "aps_tension_squadkill")
+    xbus.subscribe(ap_const.CAUSE.MASSACRE, _on_massacre, "aps_tension_massacre")
+    xbus.subscribe(ap_const.CAUSE.BASEKILL, _on_basekill, "aps_tension_basekill")
+
+    if xbus.has(ap_const.CAUSE.ELITEKILL, "aps_tension_elitekill") then return end
+    xbus.subscribe(ap_const.CAUSE.ELITEKILL, function(event_data)
+        if not event_data then return end
+        local killer_faction = event_data.killer_community
+        local victim_data = event_data.elite_data or {}
+        local victim_faction = victim_data.faction
+        if killer_faction and victim_faction then
+            _add_tension(victim_faction, killer_faction, _cause_weights["cause:elitekill"] or 10)
+        end
+    end, "aps_tension_elitekill")
+
+    ap_debug.debug("[APS.TENSION] subscribed to AP causes")
+end
+
+-- ============================================================================
+-- Vendetta check: cross-level faction retaliation
+-- IMPROVED: vendettas can fire on any level, not just the player's.
+-- Priority: player's level first (visible), then off-level (discovered later).
+-- Uses SISKI board_index for level-aware squad data when available.
+-- ============================================================================
+
+local _vendetta_cooldown = {}
+local VENDETTA_COOLDOWN_SEC = _aps_const.TENSION_VENDETTA_COOLDOWN_SEC
+local VENDETTA_THRESHOLD = 60
+
+--- Try to find avengers and targets on a specific level
+--- @param victim_faction string
+--- @param enemy_faction string
+--- @param level_id number|nil Level to search (nil = any via SIMBOARD)
+--- @return table|nil avenger_squad, table|nil enemy_smart
+local function _find_vendetta_pair(victim_faction, enemy_faction, level_id)
+    --- Find avenger on this level
+    local search_pos = nil
+    if level_id == xlevel.get_actor_level_id() and db.actor then
+        search_pos = db.actor:position()
+    end
+
+    local avengers = xsquad.find_squads(search_pos, {
+        factions = { [victim_faction] = true },
+        level_id = level_id,
+        max_count = 1,
+        exclude_unscriptable = true,
+    })
+    if not avengers or #avengers == 0 then return nil, nil end
+
+    --- Find enemy smart on same level
+    local enemy_smart = xsmart.find_smart(avengers[1].position, {
+        level_id = level_id,
+        factions = { [enemy_faction] = true },
+        max_distance = ap_const.RADIUS_DISTANT_MAX,
+    })
+    if not enemy_smart then return nil, nil end
+
+    return avengers[1], enemy_smart
+end
+
+--- Get a list of levels to check for vendettas
+--- Player's level first, then others from SISKI board_index
+local function _get_vendetta_levels()
+    local levels = {}
+    local actor_level = xlevel.get_actor_level_id()
+    if actor_level then
+        levels[#levels + 1] = actor_level
+    end
+
+    --- Query SISKI board_index for other active levels
+    if aps_bridge.is_siski_available() then
+        local bi = _G.siski.board_index
+        if bi and type(bi.get_active_levels) == "function" then
+            local ok, active = pcall(bi.get_active_levels)
+            if ok and type(active) == "table" then
+                for _, lvl in ipairs(active) do
+                    if lvl ~= actor_level then
+                        levels[#levels + 1] = lvl
+                    end
+                end
+            end
+        end
+    end
+
+    return levels
+end
+
+--- Check if any faction has enough tension to launch a vendetta
+local function _check_vendettas()
+    _decay_tension()
+    _generate_passive_tension()
+    if not cfg.tension_enabled then return end
+
+    --- Update difficulty scaling with current population
+    local pop_count = aps_population.get_level_squad_count()
+    aps_difficulty.update_population(pop_count)
+
+    local now = xtime.game_sec()
+    local threshold = cfg.tension_vendetta_threshold or VENDETTA_THRESHOLD
+    local levels = _get_vendetta_levels()
+
+    for victim_faction, enemies in pairs(_tension) do
+        for enemy_faction, score in pairs(enemies) do
+            if score < threshold then goto continue end
+
+            local key = victim_faction .. ":" .. enemy_faction
+            if _vendetta_cooldown[key] and now - _vendetta_cooldown[key] < VENDETTA_COOLDOWN_SEC then
+                goto continue
+            end
+
+            --- Try each level in priority order (player's level first)
+            local avenger, enemy_smart, vendetta_level
+            for _, level_id in ipairs(levels) do
+                avenger, enemy_smart = _find_vendetta_pair(victim_faction, enemy_faction, level_id)
+                if avenger and enemy_smart then
+                    vendetta_level = level_id
+                    break
+                end
+            end
+
+            if not avenger or not enemy_smart then goto continue end
+
+            --- Personality check: is this squad willing to fight for their faction?
+            if not aps_risk_eval.should_join_vendetta(avenger.id) then
+                _aps_log.info("[APS.TENSION] VENDETTA_REFUSED: sq=%d not loyal/aggressive enough", avenger.id)
+                goto continue
+            end
+
+            --- Population safeguard: don't deplete the player's level
+            local is_player_level = vendetta_level == xlevel.get_actor_level_id()
+            if is_player_level and not aps_population.is_level_safe() then
+                goto continue
+            end
+
+            --- Launch vendetta
+            local res = ap_alife_tracker.script_squad(avenger, enemy_smart, { rush = true })
+            if res and res.code == RESULT.OK_NEXT then
+                _vendetta_cooldown[key] = now
+                enemies[enemy_faction] = math_max(0, score - 30)
+
+                --- Record in faction memory
+                aps_faction_memory.record_event(victim_faction, "vendetta", {
+                    level_id = vendetta_level,
+                    target_faction = enemy_faction,
+                })
+
+                local pda_chance = cfg.tension_vendetta_pda_chance or 30
+                ap_utils.send_pda(pda_chance, "text_pda_consequence_vendetta", {
+                    faction = victim_faction,
+                    enemy = enemy_faction,
+                })
+
+                local level_tag = is_player_level and "LOCAL" or "REMOTE"
+                _aps_log.info("[APS.TENSION] VENDETTA_%s: %s -> %s squad=%d level=%s tension=%d",
+                    level_tag, victim_faction, enemy_faction, avenger.id, tostring(vendetta_level), score)
+            end
+
+            ::continue::
+        end
+    end
+end
+
+-- ============================================================================
+-- Save/load
+-- ============================================================================
+
+local function _on_save(m_data)
+    m_data.aps_tension = {
+        tension = _tension,
+        last_decay_at = _last_decay_at,
+    }
+end
+
+local function _on_load(m_data)
+    local saved = m_data.aps_tension or {}
+    _tension = saved.tension or {}
+    _last_decay_at = saved.last_decay_at or 0
+    _vendetta_cooldown = {}
+    ap_debug.debug("[APS.TENSION] loaded: %d faction pairs",
+        xtable.count(_tension))
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+local function _on_first_update()
+    _subscribe_to_causes()
+    --- Piggyback on the AP arrival timer (30s) for vendetta checks
+    CreateTimeEvent("aps_tension", "vendetta", 30, function()
+        ResetTimeEvent("aps_tension", "vendetta", 30)
+        _check_vendettas()
+    end)
+end
+
+function on_game_start()
+    cfg = aps_mcm.cfg
+    _tension = {}
+    _last_decay_at = 0
+    _vendetta_cooldown = {}
+    RegisterScriptCallback(CALLBACK.SAVE_STATE, _on_save)
+    RegisterScriptCallback(CALLBACK.LOAD_STATE, _on_load)
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, _on_first_update)
+    _aps_log.info("[APS.TENSION] Initialized")
+end

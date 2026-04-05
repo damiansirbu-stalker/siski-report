@@ -1,0 +1,48 @@
+--- aps_deps: Dependency gate for AlifePlus SISKI Synergy
+--- Requires: xlibs 1.2.3+, AlifePlus 1.2.2+, SISKI 0.9.5+
+--- Detects: ZCP (optional, triggers compatibility layer)
+
+local _zcp_detected = false
+local _siski_version = nil
+
+function is_zcp_present()
+    return _zcp_detected
+end
+
+function get_siski_version()
+    return _siski_version
+end
+
+function on_game_start()
+    --- xlibs required
+    if not _G.xlibs then
+        assert(false, "[APS] FATAL: xlibs is not installed. Install xlibs 1.2.3+ first.")
+    end
+    if xlibs.is_compatible and not xlibs.is_compatible("1.2.3") then
+        assert(false, "[APS] FATAL: xlibs version too old. Install xlibs 1.2.3+.")
+    end
+
+    --- AlifePlus required
+    if not _G.ap_const or not _G.ap_producer_reactive or not _G.ap_consumer then
+        assert(false, "[APS] FATAL: AlifePlus is not installed. Install AlifePlus 1.2.2+ first.")
+    end
+
+    --- SISKI required
+    if not _G.siski then
+        assert(false, "[APS] FATAL: SISKI is not installed. Install SISKI 0.9.5+ first.")
+    end
+    if not (_G.siski.core and _G.siski.bus and _G.siski.memory) then
+        assert(false, "[APS] FATAL: SISKI modules incomplete. Reinstall SISKI 0.9.5+.")
+    end
+    _siski_version = _G.siski.version or "unknown"
+
+    --- ZCP detection (optional)
+    _zcp_detected = _G.smr_pop ~= nil and type(_G.smr_pop) == "table"
+    if _zcp_detected then
+        _aps_log.info("[APS.DEPS] ZCP detected - compatibility layer will activate")
+    end
+
+    _aps_log.info("[APS.DEPS] Verified: xlibs + AlifePlus + SISKI %s + APS%s",
+        _siski_version, _zcp_detected and " + ZCP" or "")
+end
+if printf then printf('[APS] _aps_deps loaded') end

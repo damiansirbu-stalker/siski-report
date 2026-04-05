@@ -1,0 +1,98 @@
+--- aps_consequence_wealthy_ambush: Outlaws set up ambush for wealthy targets
+--- Unlike rob (which chases), ambush sends outlaws to a resource/territory smart
+--- near the target. They wait there, creating an encounter on the target's path.
+--- Only fires for high-wealth targets (score >= 60).
+local RESULT = ap_const.RESULT
+local REASON = ap_const.REASON
+local CAUSE = _aps_const.CAUSE
+local CONSEQUENCE = _aps_const.CONSEQUENCE
+local ACTION = ap_const.ACTION
+
+local cfg
+local community_ambusher_wealthy = _aps_const.community_ambusher_wealthy
+
+local function _handler(event_data)
+    local trace = event_data._trace
+    return ap_debug.observe(trace, CONSEQUENCE.WEALTHY_AMBUSH, function()
+        if not cfg.consequence_wealthy_ambush_enabled then 
+            _aps_log.info("[WEALTHY_AMBUSH] DISABLED (MCM off)")
+            return { code = RESULT.DISABLED_NEXT } end
+        local adj_chance = aps_difficulty.adjust_chance(cfg.consequence_wealthy_ambush_chance, "ambush")
+        if not xmath.chance(adj_chance) then return { code = RESULT.CHANCE_NEXT } end
+        --- Population safeguard
+        if not aps_population.is_level_safe() then
+            return { code = RESULT.RULES_NEXT, reason = _aps_const.REASON.LEVEL_DEPOPULATED }
+        end
+
+        local wealth_score = event_data.wealth_score or 0
+        if wealth_score < 60 then return { code = RESULT.RULES_NEXT, reason = _aps_const.REASON.LOW_WEALTH } end
+
+        local position, level_id = event_data.position, event_data.level_id
+        if not position then return { code = RESULT.RULES_NEXT, reason = REASON.NO_POS } end
+
+        --- Find a resource or territory smart between the target and nearest base
+        --- This creates an ambush point on likely travel routes
+        local ambush_smart = ap_utils.find_smart_observed(trace, position, {
+            level_id = level_id,
+            min_distance = ap_const.RADIUS_CLOSE_MAX,
+            max_distance = ap_const.RADIUS_DISTANT_MAX,
+            filter = function(smart)
+                return xsmart.is_resource(smart) or xsmart.is_territory(smart)
+            end,
+        })
+        if not ambush_smart then return { code = RESULT.RULES_NEXT, reason = REASON.NO_SMART } end
+
+        --- Find ambusher squads near the ambush point
+        local ambushers = ap_utils.find_squads_observed(trace, ambush_smart.position, {
+            factions = community_ambusher_wealthy,
+            max_distance = ap_const.RADIUS_DISTANT_MAX,
+            level_id = level_id,
+            max_count = cfg.consequence_wealthy_ambush_max_squads,
+            exclude_unscriptable = true,
+            exclude_squad_id = event_data.squad_id,
+        })
+        if #ambushers == 0 then return { code = RESULT.RULES_NEXT, reason = _aps_const.REASON.NO_OUTLAWS } end
+
+        --- Script ambushers to the ambush smart and wait
+        local moved = {}
+        ap_debug.observe(trace, ACTION.MOVE_SQUAD, function()
+            for _, ambusher in ipairs(ambushers) do
+                local res = ap_alife_tracker.script_squad(ambusher, ambush_smart, {
+                    rush = cfg.consequence_wealthy_ambush_rush,
+                })
+                if res and res.code == RESULT.OK_NEXT then
+                    moved[#moved + 1] = ambusher
+                end
+            end
+            return ap_debug.result_squads(moved, { dst_id = ambush_smart.id })
+        end)
+
+        if #moved == 0 then return { code = RESULT.RULES_NEXT, reason = REASON.MOVE_FAILED } end
+
+        for _, ambusher in ipairs(moved) do
+        end
+
+        ap_debug.observe(trace, ACTION.SEND_PDA, function()
+            local location = ap_utils.get_location_description(nil, ambush_smart.position, level_id)
+            return ap_utils.send_pda(cfg.consequence_wealthy_ambush_pda_chance,
+                "text_pda_consequence_wealthy_ambush", { location = location })
+        end)
+
+        return ap_debug.result_squads(moved, {
+            code = RESULT.OK_NEXT,
+            reason = #moved .. "_ambushers",
+            dst_id = ambush_smart.id,
+            wealth = event_data.wealth_score,
+        })
+    end)
+end
+
+function on_game_start()
+    cfg = aps_mcm.cfg
+    ap_consumer.register(CONSEQUENCE.WEALTHY_AMBUSH, {
+        event = CAUSE.WEALTHY,
+        priority = 20,
+        condition = function() return cfg.consequence_wealthy_ambush_enabled end,
+    }, _handler)
+    _aps_log.info("[CONSEQUENCE.WEALTHY_AMBUSH] Initialized")
+end

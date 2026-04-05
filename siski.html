@@ -1,0 +1,1216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SISKI Code Copying Report</title>
+<style>
+:root {
+  --bg: #faf9f6;
+  --bg-card: #f0f0ee;
+  --bg-code: #ebebeb;
+  --border: #c8c3b6;
+  --fg: #2c2a25;
+  --fg-dim: #6e6960;
+  --blue: #0969da;
+  --green: #1a7f37;
+  --red: #cf222e;
+  --yellow: #9a6700;
+  --sand: #d4c5a0;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: Georgia, "Times New Roman", Times, serif;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--fg);
+  background: var(--bg);
+}
+/* Layout: sidebar + content */
+.page { display: flex; max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+.sidebar {
+  width: 280px;
+  min-width: 280px;
+  padding: 40px 0 80px 0;
+  margin-right: 32px;
+}
+.sidebar nav {
+  position: sticky;
+  top: 24px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+  font-size: 13px;
+}
+.sidebar nav h2 { font-size: 13px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.sidebar nav ol { padding-left: 18px; margin-bottom: 0; }
+.sidebar nav li { margin-bottom: 4px; font-size: 13px; line-height: 1.5; }
+.sidebar nav a { color: var(--blue); text-decoration: none; }
+.sidebar nav a:hover { text-decoration: underline; }
+.wrap { max-width: 860px; flex: 1; min-width: 0; padding: 40px 0 80px; }
+
+/* Header */
+header { margin-bottom: 40px; }
+header h1 { font-size: 26px; font-weight: 600; margin-bottom: 6px; }
+header p { color: var(--fg-dim); font-size: 14px; }
+
+/* TOC (styled via .sidebar nav) */
+
+/* Sections */
+section { margin-bottom: 48px; }
+h2 {
+  font-size: 22px;
+  font-weight: 700;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+h3 { font-size: 16px; font-weight: 600; margin: 20px 0 8px; }
+p { margin-bottom: 12px; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }
+th, td { padding: 8px 12px; border: 1px solid var(--border); text-align: left; }
+th { background: var(--bg-card); font-weight: 600; }
+td { background: var(--bg); }
+tr:nth-child(even) td { background: var(--bg-card); }
+
+/* Code */
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin-bottom: 16px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+p code, li code, td code {
+  background: var(--bg-code);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+/* Side-by-side (2 columns) */
+.compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.compare-panel {
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.compare-panel:has(.compare-label.src) { background: rgba(26,127,55,0.04); }
+.compare-panel:has(.compare-label.cpy) { background: rgba(207,34,46,0.05); }
+.compare-panel:has(.compare-label.plan) { background: rgba(154,103,0,0.04); }
+.compare-label {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+}
+.compare-label.src { background: rgba(63,185,80,0.12); color: var(--green); }
+.compare-label.cpy { background: rgba(248,81,73,0.12); color: var(--red); }
+.compare-label.plan { background: rgba(154,103,0,0.12); color: var(--yellow); }
+.compare-panel pre { border: none; border-radius: 0; margin: 0; background: transparent; }
+
+/* 3-column mirror */
+.mirror {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.mirror .compare-panel { min-width: 0; }
+
+/* Callout */
+.callout {
+  padding: 14px 18px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+  border-left: 3px solid;
+  background: var(--bg-card);
+  font-size: 14px;
+}
+.callout.note { border-color: var(--blue); }
+.callout.warn { border-color: var(--yellow); }
+.callout.key  { border-color: var(--red); }
+
+/* Timeline */
+.tl { position: relative; padding-left: 24px; margin-bottom: 24px; }
+.tl::before { content:''; position: absolute; left: 6px; top: 4px; bottom: 4px; width: 2px; background: var(--border); }
+.tl-item { position: relative; padding-bottom: 14px; }
+.tl-item::before {
+  content:''; position: absolute; left: -22px; top: 6px;
+  width: 10px; height: 10px; border-radius: 50%;
+  border: 2px solid var(--blue); background: var(--bg);
+}
+.tl-item.alert::before { border-color: var(--red); }
+.tl-date { font-size: 12px; color: var(--fg-dim); font-family: monospace; }
+.tl-text { font-size: 14px; }
+
+/* Images */
+.img-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+.img-row img {
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+/* Lists */
+ol, ul { padding-left: 22px; margin-bottom: 12px; }
+li { margin-bottom: 4px; }
+
+/* Blockquote */
+blockquote {
+  border-left: 3px solid var(--border);
+  padding: 8px 16px;
+  margin-bottom: 12px;
+  color: var(--fg-dim);
+  background: var(--bg-card);
+  border-radius: 0 6px 6px 0;
+  font-size: 14px;
+}
+
+/* Footer */
+footer {
+  margin-top: 48px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  color: var(--fg-dim);
+  font-size: 12px;
+}
+footer a { color: var(--blue); }
+
+.topnav-wrap { position: sticky; top: 0; z-index: 100; background: var(--bg); border-bottom: 1px solid var(--border); }
+.topnav { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 12px 24px; font-size: 13px; font-weight: 500; max-width: 1180px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+.sidebar nav, table, .compare-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+.topnav a { color: var(--fg-dim); text-decoration: none; padding: 4px 6px; border-radius: 4px; transition: background 0.1s, color 0.1s; }
+.topnav a:hover { color: var(--blue); background: var(--bg-card); }
+.topnav a.active { color: var(--fg); border-bottom: 2px solid var(--sand); }
+.topnav .sep { width: 1px; height: 14px; background: var(--border); align-self: center; margin: 0 4px; }
+
+@media (max-width: 960px) {
+  .page { flex-direction: column; padding: 0 16px; }
+  .sidebar { width: 100%; min-width: 0; margin-right: 0; padding: 20px 0 0 0; }
+  .sidebar nav { position: static; max-height: none; }
+  .wrap { padding: 20px 0 60px; }
+  .mirror { grid-template-columns: 1fr; }
+  .compare { grid-template-columns: 1fr; }
+}
+
+/* Lightbox */
+.thumb { cursor: pointer; transition: opacity 0.15s; }
+.thumb:hover { opacity: 0.85; }
+.lightbox {
+  display: none; position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.85); align-items: center; justify-content: center; cursor: pointer;
+}
+.lightbox.open { display: flex; }
+.lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 6px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+
+/* Line numbers in code blocks */
+pre code { counter-reset: line; }
+pre code .ln { counter-increment: line; }
+pre code .ln::before { content: counter(line); display: inline-block; width: 2.5em; margin-right: 1em; text-align: right; color: var(--fg-dim); font-size: 11px; opacity: 0.5; user-select: none; }
+
+/* Anchor links on headings */
+h2 .anchor, h3 .anchor { opacity: 0; margin-left: 6px; color: var(--fg-dim); text-decoration: none; font-size: 0.8em; transition: opacity 0.15s; }
+h2:hover .anchor, h3:hover .anchor { opacity: 0.6; }
+h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
+
+/* Print stylesheet */
+@media print {
+  .topnav-wrap, .sidebar, .lightbox { display: none !important; }
+  .page { display: block; padding: 0; }
+  .wrap { max-width: 100%; padding: 0; }
+  body { font-size: 12pt; line-height: 1.5; }
+  h2 { page-break-before: always; }
+  h2:first-of-type { page-break-before: avoid; }
+  pre { white-space: pre-wrap; word-wrap: break-word; font-size: 9pt; }
+  table { font-size: 9pt; }
+  .img-row img { max-width: 45% !important; }
+  .callout { border-left-width: 3px; }
+  a[href]::after { content: " (" attr(href) ")"; font-size: 8pt; color: #666; }
+  a[href^="#"]::after { content: ""; }
+  .compare, .mirror { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="topnav-wrap">
+<nav class="topnav">
+  <a href="index.html">Home</a>
+  <a href="guide.html">Usage Guide</a>
+  <a href="siski.html" class="active">SISKI Report</a>
+  <a href="nano.html">SISKI Nano</a>
+  <a href="aps.html">APS Analysis</a>
+  <a href="https://github.com/damiansirbu-stalker" style="margin-left:auto">GitHub</a>
+</nav>
+</div>
+<div class="page">
+
+<!-- SIDEBAR NAV -->
+<div class="sidebar">
+<nav>
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#exec">Summary</a></li>
+    <li><a href="#admissions">The Author Admitted It</a></li>
+    <li><a href="#timeline">Timeline and License</a></li>
+    <li><a href="#evidence">Evidence: Design-by-Design</a>
+      <ol style="list-style-type:lower-alpha">
+        <li><a href="#e-bus">Event Bus Clone</a></li>
+        <li><a href="#e-callbacks">Callback Architecture</a></li>
+        <li><a href="#e-prodcon">Producer/Consumer</a></li>
+        <li><a href="#e-throttle">Off-Level Throttle</a></li>
+        <li><a href="#e-init">Two-Phase Init</a></li>
+        <li><a href="#e-bridge">Internals Reversed</a></li>
+      </ol>
+    </li>
+    <li><a href="#prior">Code from Other Authors</a></li>
+    <li><a href="#features">Feature Set Cloning</a></li>
+    <li><a href="#aislop">AI Code Artifacts</a></li>
+    <li><a href="#harassment">Retaliation</a></li>
+  </ol>
+</nav>
+</div>
+
+<!-- MAIN CONTENT -->
+<div class="wrap">
+
+
+<header>
+  <h1>SISKI ALIFE: Code Copying and License Violation Report</h1>
+  <p>Damian Sirbu, xlibs and AlifePlus developer &middot; Last updated: 2026-04-05 &middot; Subject: SISKI ALIFE mod by qkff99</p>
+  <p style="font-size:12px;color:var(--fg-dim)">ModDB: <a href="https://www.moddb.com/mods/stalker-anomaly/addons/reznya">SISKI ALIFE (Reznya)</a> &middot; <a href="https://www.moddb.com/mods/stalker-anomaly/addons/siski-nano-size-alife-anomaly-153">SISKI Nano</a> &middot; GitHub: <a href="https://github.com/qkff99/siski">qkff99/siski</a></p>
+</header>
+
+<div class="callout note">
+<strong>How these projects are meant to be used:</strong> xlibs and AlifePlus are open source under the <a href="https://github.com/damiansirbu-stalker/AlifePlus/blob/main/LICENSE">PolyForm Perimeter License</a>. Other mods are welcome to depend on them, call their functions, subscribe to their events, register causes and consequences, and ship in modpacks &mdash; with visible credit. The <a href="guide.html">usage guide</a> explains the intended integration paths. What the license does not allow is cloning the architecture, reverse-engineering internal systems, or reproducing the implementation in a competing mod.
+</div>
+
+<!-- TL;DR -->
+<div class="callout key" style="font-size:15px">
+<strong>TL;DR for non-coders:</strong>
+<ol style="margin-top:8px;margin-bottom:0">
+  <li>The SISKI author <strong>admitted on Discord</strong> that he studied the AlifePlus code and "made an identical one" using an AI agent <a href="#admissions" style="font-size:12px">(screenshots &darr;)</a></li>
+  <li>He told his AI to copy the architecture &mdash; the <strong>AI instruction files are still in his git history</strong> (deleted 17 hours after use) <a href="#evidence" style="font-size:12px">(evidence &darr;)</a></li>
+  <li>His mod had <strong>NONE of these features until 5&ndash;7 days</strong> after AlifePlus source code was published <a href="#timeline" style="font-size:12px">(timeline &darr;)</a></li>
+</ol>
+</div>
+
+<!-- EXECUTIVE SUMMARY -->
+<section id="exec">
+<h2>Summary</h2>
+
+<p>AlifePlus and xlibs were built from scratch starting autumn 2025. The private GitHub repository has 265 commits from December 2025 through April 2026. The source code was published so that other modders could use it, build on it, and integrate with it. Within days, the published source was fed into an AI agent and used to replicate the design in a competing mod.</p>
+
+<p>SISKI ALIFE (by GitHub user <a href="https://github.com/qkff99">qkff99</a>) contains architecture and code copied from <strong>xlibs</strong> and <strong>AlifePlus</strong> (by Damian Sirbu) without attribution, in violation of their license. The evidence below shows what was copied and how, with side-by-side code comparisons.</p>
+
+<p><strong>Actions taken:</strong></p>
+<ul>
+  <li><strong>DMCA Takedown Notice</strong> filed with GitHub Trust &amp; Safety (Ticket #4214814, revised April 3) &mdash; identifies infringing files, bus references, and the foundational nature of the copied architecture. Under review.</li>
+  <li><strong>Abuse Report</strong> filed with GitHub Trust &amp; Safety &mdash; documents coordinated harassment, organized campaign to "strike, shame, ban, ruin"</li>
+  <li><strong>Terms of Service violation report</strong> submitted to ModDB &mdash; coordinated downvote campaign confirmed by ModDB staff, warnings and access restrictions issued to qkff99</li>
+</ul>
+
+<table>
+  <tr><th>Finding</th><th>Evidence</th><th>Section</th></tr>
+  <tr><td>Author admitted copying</td><td>Discord: "looked at his reactive model and made an identical one"</td><td><a href="#admissions">&darr;</a></td></tr>
+  <tr><td>AI plans prescribe AlifePlus architecture</td><td>Commit <code>b026c90</code>: <code>plan.md</code> + <code>plan_stage2.md</code>, deleted 17h later</td><td><a href="#evidence">&darr;</a></td></tr>
+  <tr><td>Event bus clone (5/5 API functions)</td><td><code>siski_bus.script</code> matches all functions, data structure, algorithm. Zero prior history.</td><td><a href="#e-bus">&darr;</a></td></tr>
+  <tr><td>7 architectural patterns copied</td><td>Bus, callbacks, producer/consumer, throttle, init, bridge, factory. None in SISKI 0.9.4.1.</td><td><a href="#evidence">&darr;</a></td></tr>
+  <tr><td>All patterns appeared in 5&ndash;7 days</td><td>AlifePlus source published Mar 18. SISKI refactor Mar 23&ndash;28.</td><td><a href="#timeline">&darr;</a></td></tr>
+  <tr><td>Code from other authors unattributed</td><td>Demonized: preserved <code>analse_mode</code> typo. xcvb: verbatim guard data.</td><td><a href="#prior">&darr;</a></td></tr>
+  <tr><td>Coordinated retaliation</td><td>Discord call to "strike, shame, ban, ruin". ModDB warnings issued to qkff99.</td><td><a href="#harassment">&darr;</a></td></tr>
+</table>
+
+<p><strong>About the counter-claim:</strong> qkff99 and associates claim AlifePlus stole from SISKI. This is false. The first AlifePlus commit was <strong>December 28, 2025</strong>. SISKI's first commit was <strong>January 24, 2026</strong> &mdash; nearly a month later. The reactive architecture was created <strong>January 5</strong>. SISKI added reactive architecture <strong>March 23</strong>. Git logs from both repositories prove this.</p>
+
+<p><strong>Verify it yourself (5 commands):</strong></p>
+<pre><code># Clone the archived SISKI repository
+git clone https://github.com/qkff99/siski && cd siski
+
+# 1. See the deleted AI plans that prescribe the AlifePlus architecture
+git show b026c90:plan.md | head -20
+git show b026c90:plan_stage2.md | head -40
+
+# 2. See the event bus clone (zero prior history)
+git log --all --follow -- gamedata/scripts/siski_bus.script
+
+# 3. See the old SISKI v0.9.4.1 (no squad callbacks, no bus, no reactive architecture)
+git show 74a1fbd:gamedata/scripts/siski_core.script | grep RegisterScriptCallback  # last commit before refactor
+
+# 4. See the new SISKI (all AlifePlus patterns)
+git show 6e0fb89:gamedata/scripts/siski_core.script | grep RegisterScriptCallback</code></pre>
+
+<p><strong>What needs to happen:</strong></p>
+<ol>
+  <li>Remove cloned code (<code>siski_bus.script</code>, <code>siski_ap_bridge.script</code>) and all reverse-engineered internals</li>
+  <li>Add attribution to AlifePlus/xlibs where design patterns are used, per the license terms</li>
+  <li>Cease coordinated negative actions (downvote campaigns, false accusations, platform manipulation)</li>
+  <li>If the above is not feasible: takedown of the infringing repository and ModDB page</li>
+</ol>
+<div class="callout note">
+<strong>If they fix it.</strong> If the author complies with items 1&ndash;3, this report will be updated to reflect compliance and the DMCA claim will be withdrawn. The goal is attribution and legitimate use, not punishment.
+</div>
+</section>
+
+<!-- EVIDENCE PRESERVATION -->
+<div class="callout key">
+  <strong>Evidence preservation.</strong> The complete SISKI repository (all branches, all commits) was cloned via <code>git clone --mirror</code> and archived as a git bundle on 2026-03-29 and 2026-03-30. This includes the deleted AI plans, every commit referenced in this report, and the full history of all three branches (main, new_lite_siski, dev_stuff). All commit hashes, timestamps, and file contents cited below are verifiable from the archived copy.
+</div>
+
+<!-- nav moved to sidebar -->
+
+<!-- 1. ADMISSIONS (leads -- strongest evidence first) -->
+<section id="admissions">
+<h2>The Author Admitted It</h2>
+
+<h3>Discord: describes studying and replicating the architecture</h3>
+<p>When confronted by an independent community member about the code similarities, qkff99 (as "Kostya Feniks") described the process in his own words:</p>
+<blockquote>
+  <strong>Community member:</strong> "they also write that you stole code"<br><br>
+  <strong>qkff99:</strong> "I processed the Romanian's code docs through my agent with a code breakdown, then looked at his reactive model and made an identical one"<br>
+  <small>(Original Russian: "ya manifesty rumyna s razborom koda cherez svoyego agenta prognal, potom posmotrel yego reaktivnuyu model' i sdelal takuyu zhe")</small><br>
+  "it's really more profitable than a loop with budgets"<br>
+  "and by the way I knew they'd throw shit at me for this"<br>
+  "I don't hide it"
+</blockquote>
+<div class="img-row">
+  <img class="thumb" src="img/siski-admission-stealing-1.png" alt="Discord admission 1" style="max-width:280px">
+  <img class="thumb" src="img/siski-admission-stealing-2.png" alt="Discord admission 2" style="max-width:280px">
+</div>
+<p style="font-size:12px;color:var(--fg-dim)">Full Russian text visible above. Translation verified.</p>
+
+<h3>Discord: "~95% vibe coded"</h3>
+<blockquote>
+  "siski is vibe coded too, ~95% maybe, but shhh..."<br>
+  "I'm not a coder and never was"
+</blockquote>
+<div class="img-row">
+  <img class="thumb" src="img/4jFhQIf.png" alt="Discord 95% vibe coded" style="max-width:280px">
+</div>
+
+<h3>ModDB: admits using the AlifePlus code analysis</h3>
+<p>After evidence of code copying was presented on Discord and ModDB issued warnings for slander and harassment, qkff99 edited the SISKI mod page description to include:</p>
+<blockquote>
+  "BIG thanks to Damian for big amount of reviews SISKI's codebase he posted in his Anomaly mod-posting topic, i used it to make SISKI better and faster and compatible with his ALIFE PLUS."
+</blockquote>
+<div class="img-row">
+  <img class="thumb" src="img/screenshot.32.jpg" alt="ModDB admission" style="max-width:320px">
+  <img class="thumb" src="img/bazinga-admission.jpg" alt="Community recognition" style="max-width:320px">
+</div>
+</section>
+
+<!-- 2. TIMELINE & LICENSE -->
+<section id="timeline">
+<h2>Timeline and License</h2>
+
+<div class="callout note">
+  <strong>Development history.</strong> ZRP (Zone Regulation Project) was a private project started in autumn 2025 &mdash; the ideas for elites, legends, and the cause-consequence architecture all originated there. The private monorepo has 265 commits showing the full evolution: ZRP v2.7 (Dec 29) &rarr; ZRP v2.8 (Dec 31) &rarr; "ZRP split into Alife Guard and Alife Plus, reactive architecture" (Jan 5, commit <code>e779f45</code>) &rarr; <code>xbus.script</code> created (Jan 16, commit <code>a3dde90</code>) &mdash; 8 days before SISKI's first commit.
+</div>
+<div class="img-row" id="img-zrp-history">
+  <img class="thumb" src="img/monorepo-commits.jpg" alt="Private monorepo showing 265 commits" style="max-width:32%">
+  <img class="thumb" src="img/zrp-monorepo-commits.jpg" alt="Commit history showing ZRP to AlifePlus evolution" style="max-width:32%">
+  <img class="thumb" src="img/zrp-monorepo-history.jpg" alt="Full private monorepo commit log" style="max-width:32%">
+</div>
+
+<table>
+  <tr><th>Date</th><th>AlifePlus / xlibs</th><th>SISKI</th><th>License in effect</th></tr>
+  <tr><td><code>2025-12-28</code></td><td>First commit in private monorepo (<code>610a1ed</code>)</td><td>&mdash;</td><td>&mdash;</td></tr>
+  <tr><td><code>2026-01-05</code></td><td>Reactive architecture created (<code>e779f45</code>)</td><td>&mdash;</td><td>&mdash;</td></tr>
+  <tr><td><code>2026-01-16</code></td><td><code>xbus.script</code> created (<code>a3dde90</code>). No-derivatives license added (<code>b443530</code>)</td><td>&mdash;</td><td>&mdash;</td></tr>
+  <tr><td><code>2026-01-24</code></td><td>&mdash;</td><td>qkff99 creates SISKI (<code>a9e0591</code>)</td><td>&mdash;</td></tr>
+  <tr style="color:var(--red)"><td><code>2026-01-28</code></td><td>&mdash;</td><td><code>cb7b9c8</code> copies Demonized's code with preserved <code>analse_mode</code> typo</td><td>&mdash;</td></tr>
+  <tr><td><code>2026-03-11</code></td><td>&mdash;</td><td>qkff99 adds GPL-3.0 LICENSE with copyright holder placeholder unfilled</td><td>&mdash;</td></tr>
+  <tr><td><code>2026-03-12</code></td><td>Published on ModDB under <strong>Proprietary License</strong></td><td>v0.9.4.1 released. Uses <code>actor_on_update</code> loop. No bus, no squad callbacks.</td><td><strong>Proprietary</strong></td></tr>
+  <tr><td><code>2026-03-18</code></td><td>Source published on GitHub (<code>0467946</code>, <code>48c9e10</code>). Architecture.md visible.</td><td>&mdash;</td><td><strong>Proprietary</strong></td></tr>
+  <tr style="color:var(--red)"><td><code>2026-03-23</code></td><td>&mdash;</td><td><code>b026c90</code> "big fkin refactoring" &mdash; bus clone, callback rewrite, AI plans naming AlifePlus architecture</td><td><strong>Proprietary</strong></td></tr>
+  <tr style="color:var(--red)"><td><code>2026-03-24</code></td><td>&mdash;</td><td><code>885cea0</code> deletes <code>plan.md</code> + <code>plan_stage2.md</code> &mdash; 17 hours after creation</td><td><strong>Proprietary</strong></td></tr>
+  <tr style="color:var(--red)"><td><code>2026-03-25</code></td><td>&mdash;</td><td><code>cbaf038</code> "new performance feature" &mdash; adds off-level skip throttle</td><td><strong>Proprietary</strong></td></tr>
+  <tr style="color:var(--red)"><td><code>2026-03-28</code></td><td>&mdash;</td><td><code>6e0fb89</code> "0.9.5 update" &mdash; <code>siski_ap_bridge.script</code> reverse-engineers AlifePlus internals</td><td><strong>Proprietary</strong></td></tr>
+  <tr><td><code>2026-03-29</code></td><td>License changed to PolyForm Perimeter</td><td>qkff99 admits copying on Discord</td><td><strong>PolyForm Perimeter</strong></td></tr>
+</table>
+
+<h3>License violations</h3>
+<p>The Proprietary License v1.0 (in effect March 18&ndash;29, when all copying occurred) stated:</p>
+<blockquote>
+  Section 4(a): "You may not modify the software, create derivative works, merge the software into other software"<br>
+  Section 4(c): "reverse engineer, decompile, or disassemble the software for the purpose of creating competing or substantially similar software"<br>
+  Section 5: "Creating software that reproduces or substantially resembles the software's design, structure, architecture, methodology [...] is a violation of this license, regardless of whether source code was directly copied"
+</blockquote>
+
+<p>The PolyForm Perimeter License (current, March 29&ndash;present) continues to prohibit competing use, replication without attribution, and reverse engineering. It permits addons and extensions that depend on the software with attribution &mdash; the legitimate path that was available and rejected.</p>
+
+<table>
+  <tr><th>License</th><th>Period</th><th>Requirement</th></tr>
+  <tr><td>Proprietary s4(a)</td><td>Mar 18&ndash;29</td><td>No derivative works &mdash; bus + architecture is derivative</td></tr>
+  <tr><td>Proprietary s4(c)</td><td>Mar 18&ndash;29</td><td>No reverse engineering &mdash; AI decomposition of source</td></tr>
+  <tr><td>Proprietary s5</td><td>Mar 18&ndash;29</td><td>No reproducing design &mdash; reactive pipeline replicated</td></tr>
+  <tr><td>PolyForm Perimeter</td><td>Mar 29&ndash;present</td><td>No competing use, no replication without credit, visible attribution required &mdash; all three broken. Zero attribution across 58 files</td></tr>
+</table>
+
+<p>Grep across all 58 SISKI <code>.script</code> files, config files, README, changelog, and LICENSE for: <code>Damian</code>, <code>Sirbu</code>, <code>AlifePlus</code>, <code>xlibs</code>, <code>xbus</code>, <code>xsmart</code>. Result: <strong>zero matches</strong>. SISKI's own GPL-3.0 LICENSE (commit <code>b83ddd0</code>) has the copyright holder placeholder still unfilled: <code>&lt;name of author&gt;</code>.</p>
+
+<p><strong>Note on GPL-3.0:</strong> qkff99 released SISKI under GPL-3.0, but you cannot GPL code you do not own the copyright to. Derivative works of proprietary/PolyForm-licensed code cannot be relicensed under GPL without the original author's permission. The GPL license on SISKI is invalid for all code derived from xlibs and AlifePlus.</p>
+</section>
+
+<!-- (end of timeline, admissions is above) -->
+
+<!-- 3. EVIDENCE -->
+<section id="evidence">
+<h2>Evidence: Design-by-Design Comparison</h2>
+
+<p>Each subsection below shows one design pattern copied from AlifePlus/xlibs. For each pattern, three columns are shown where applicable:</p>
+<ul>
+  <li><strong style="color:var(--green)">AlifePlus/xlibs</strong> &mdash; the original code (published March 18)</li>
+  <li><strong style="color:var(--yellow)">SISKI deleted plan</strong> &mdash; the AI instruction that described what to copy (created March 23, deleted March 24)</li>
+  <li><strong style="color:var(--red)">SISKI 0.9.5</strong> &mdash; the resulting code (March 23&ndash;28)</li>
+</ul>
+<p>Every pattern shown below did <strong>not exist</strong> in SISKI 0.9.4.1 (March 12).</p>
+
+<!-- 3a. EVENT BUS -->
+<h3 id="e-bus">3a. Event Bus Clone (xbus &rarr; siski_bus)</h3>
+
+<p><strong>In plain English:</strong> An event bus lets different parts of a mod send and receive messages. Every modder builds theirs differently. The xbus implementation uses 5 specific functions and tracks subscribers by string name in an ordered list &mdash; an unusual design choice. SISKI's bus has the exact same 5 functions, the exact same unusual design, and appeared fully formed in a single commit with zero prior development history.</p>
+
+<p>A search across thousands of mods in the STALKER modding ecosystem found that <code>xbus</code> is the <strong>only</strong> named-subscriber pub/sub event bus. No other mod implements a <code>subscribe</code>/<code>unsubscribe</code>/<code>publish</code> system with string-keyed dedup and ordered subscriber arrays.</p>
+
+<div class="mirror">
+<div class="compare-panel">
+<div class="compare-label src">AlifePlus: xbus.script (Jan 16)</div>
+<pre><code>-- 5 API functions:
+subscribe(event, callback, name)
+unsubscribe(event, name)
+publish(event, data)
+count(event)
+has(event, name)
+
+-- Data structure:
+subs[#subs + 1] = {
+  callback = callback,
+  name = name
+}</code></pre>
+</div>
+<div class="compare-panel">
+<div class="compare-label plan">SISKI plan.md (Mar 23, deleted)</div>
+<pre><code>API fixed:
+  subscribe/unsubscribe/publish
+  for bus and
+  schedule/cancel/reschedule
+  for keyed timers
+
+siski_core to become thin
+  bootstrap and publisher</code></pre>
+</div>
+<div class="compare-panel">
+<div class="compare-label cpy">SISKI: siski_bus.script (Mar 23)</div>
+<pre><code>-- 5 API functions:
+subscribe(event, name, fn)
+unsubscribe(event, name)
+publish(event, payload)
+count(event)
+has(event, name)
+
+-- Data structure:
+list[#list + 1] = {
+  name = name,
+  fn = fn
+}</code></pre>
+</div>
+</div>
+
+<p><strong>5 out of 5 API functions match:</strong></p>
+<table>
+  <tr><th>Function</th><th>xbus (commit <code>0467946</code>)</th><th>siski_bus (commit <code>b026c90</code>)</th></tr>
+  <tr><td><code>subscribe</code></td><td>:33 <code>(event, callback, name)</code></td><td>:52 <code>(event, name, fn)</code></td></tr>
+  <tr><td><code>unsubscribe</code></td><td>:52 <code>(event, name)</code></td><td>:73 <code>(event, name)</code></td></tr>
+  <tr><td><code>publish</code></td><td>:66 <code>(event, data)</code></td><td>:92 <code>(event, payload)</code></td></tr>
+  <tr><td><code>count</code></td><td>:105 <code>(event)</code></td><td>:120 <code>(event)</code></td></tr>
+  <tr><td><code>has</code></td><td>:117 <code>(event, name)</code></td><td>:125 <code>(event, name)</code></td></tr>
+</table>
+
+<p><strong>Identical algorithm</strong> &mdash; the subscribe function in both mods performs the same 4 steps in the same order. Annotated line-by-line:</p>
+<div class="compare">
+  <div class="compare-panel">
+    <div class="compare-label src">xbus.script :37-42</div>
+    <pre><code>-- STEP 1: ensure array exists for this event
+subscribers[event] = subscribers[event] or {}
+
+-- STEP 2: reject if name already registered
+if find_subscriber_index(event, name) then
+    return false                  -- ^ same return
+end
+
+-- STEP 3: append record with .name key
+local subs = subscribers[event]
+subs[#subs + 1] = {
+    callback = callback,
+    name = name                   -- ^ same .name field
+}
+
+-- STEP 4: confirm success
+return true                       -- ^ same return</code></pre>
+  </div>
+  <div class="compare-panel">
+    <div class="compare-label cpy">siski_bus.script :57-70</div>
+    <pre><code>-- STEP 1: ensure array exists for this event
+local list = self.subscribers[event]
+if not list then
+    list = {}
+    self.subscribers[event] = list
+end
+-- STEP 2: reject if name already registered
+for i = 1, #list do
+    if list[i].name == name then
+        return false              -- ^ same return
+    end
+end
+-- STEP 3: append record with .name key
+list[#list + 1] = {
+    name = name,                  -- ^ same .name field
+    fn = fn
+}
+-- STEP 4: confirm success
+return true                       -- ^ same return</code></pre>
+  </div>
+</div>
+
+<p><strong>Six design decisions unique to xbus, all replicated:</strong></p>
+<ol>
+  <li>String <code>.name</code> field as subscriber dedup key (not callback reference, not numeric ID)</li>
+  <li>Array-of-records storage (not name-keyed hash map &mdash; an unusual choice that makes lookup O(n) instead of O(1))</li>
+  <li><code>subscribe</code> / <code>unsubscribe</code> / <code>publish</code> / <code>count</code> / <code>has</code> &mdash; this exact 5-function vocabulary</li>
+  <li>Boolean returns from subscribe/unsubscribe (<code>true</code> on success, <code>false</code> on duplicate/missing)</li>
+  <li>Numeric delivered count from publish (returns integer count of calls made)</li>
+  <li>Nil payload defaulted to <code>{}</code> before dispatch</li>
+</ol>
+
+<p><strong>Zero development history.</strong> <code>git log --all --follow -- gamedata/scripts/siski_bus.script</code> shows exactly one commit: <code>b026c90</code>. No prior bus, pub/sub, or event system code existed in any SISKI file before this commit. The file appeared fully formed at 159 lines alongside AI plans that describe its API.</p>
+
+<p><strong>93 references across 15 files.</strong> 83 subscribe calls, 10 publish calls. The bus is the communication layer for the entire mod: <code>siski_core</code> publishes to it, <code>siski_memory</code>, <code>siski_operator</code>, <code>siski_mutants</code>, <code>siski_base_filler</code>, <code>siski_trade</code>, and every other module subscribes to it. Removing <code>siski_bus.script</code> would break SISKI.</p>
+
+<!-- 3b. CALLBACK ARCHITECTURE -->
+<h3 id="e-callbacks">3b. Callback Architecture: squad_on_update, enter/leave_smart, forwarder factory</h3>
+
+<p><strong>In plain English:</strong> A callback is a function the game engine calls when something happens (a squad moves, enters a location, etc.). Old SISKI listened for 5 events, mainly "the player's screen updated" &mdash; a brute-force approach. AlifePlus listens for squad-specific events across the entire game world. After the AlifePlus source was published, SISKI switched to the same approach: same events, same roles, same factory pattern to wire them up.</p>
+
+<p>SISKI 0.9.4.1 used 5 callbacks with client-side <code>actor_on_update</code> as its main loop. SISKI 0.9.5 uses 24 callbacks with server-side <code>squad_on_update</code> as the FSM tick and <code>enter/leave_smart</code> as semantic events &mdash; the same architecture AlifePlus uses.</p>
+
+<div class="mirror">
+<div class="compare-panel">
+<div class="compare-label src">AlifePlus architecture.md (Mar 18)</div>
+<pre><code>Radiant causes fire on A-Life
+state changes: smart transitions
+and player proximity.
+
+Callbacks: RADIANT_CALLBACKS
+  (enter/leave/actor_on_smart)
+
+Two A-Life speeds. Off-map:
+  steady enter/leave_smart.
+On-map: sparse transitions.
+  adapter fills the gap.</code></pre>
+</div>
+<div class="compare-panel">
+<div class="compare-label plan">SISKI plan_stage2.md (Mar 23, deleted)</div>
+<pre><code>Canonical decision point for
+  squad FSM: squad_on_update.
+
+squad_on_enter_smart and
+  squad_on_leave_smart become
+  semantic task events.
+
+Strict callback-driven model
+  without global runtime loops,
+  without operator queue/drain.</code></pre>
+</div>
+<div class="compare-panel">
+<div class="compare-label cpy">SISKI 0.9.5 siski_core.script (Mar 23)</div>
+<pre><code>RegisterScriptCallback(
+  "squad_on_update",         -- NEW
+  siski.core.on_squad_update)
+RegisterScriptCallback(
+  "squad_on_enter_smart",    -- NEW
+  siski.core.on_squad_enter_smart)
+RegisterScriptCallback(
+  "squad_on_leave_smart",    -- NEW
+  siski.core.on_squad_leave_smart)
+-- actor_on_update REMOVED
+-- 24 total callbacks (was 5)</code></pre>
+</div>
+</div>
+
+<p><strong>Callback registration before and after:</strong></p>
+<div class="compare">
+<div class="compare-panel">
+<div class="compare-label src">SISKI 0.9.4.1 (Mar 12) &mdash; siski_core.script:256</div>
+<pre><code>RegisterScriptCallback("actor_on_first_update", ...)
+RegisterScriptCallback("actor_on_update", ...)       -- MAIN LOOP
+RegisterScriptCallback("save_state", ...)
+RegisterScriptCallback("load_state", ...)
+RegisterScriptCallback("squad_on_npc_death", ...)</code></pre>
+</div>
+<div class="compare-panel">
+<div class="compare-label cpy">SISKI 0.9.5 (Mar 23) &mdash; siski_core.script:407</div>
+<pre><code>RegisterScriptCallback("squad_on_update", ...)         -- NEW
+RegisterScriptCallback("squad_on_enter_smart", ...)     -- NEW
+RegisterScriptCallback("squad_on_leave_smart", ...)     -- NEW
+RegisterScriptCallback("squad_on_first_update", ...)
+RegisterScriptCallback("squad_on_npc_creation", ...)
+-- actor_on_update REMOVED, 24 total (was 5)</code></pre>
+</div>
+</div>
+
+<p><strong>Callback forwarder factory</strong> &mdash; both use a factory function that takes a callback name and returns a closure that forwards engine events to the internal bus. This pattern (factory -> closure -> bus publish) does not exist in any other STALKER Anomaly mod:</p>
+<div class="compare">
+  <div class="compare-panel">
+    <div class="compare-label src">ap_producer_reactive.script :221-223</div>
+    <pre><code>-- Factory: takes callback name
+local function _create_dispatcher(callback)
+    -- Returns closure that forwards to bus
+    return function(...)
+        dispatch(callback, ...)
+    end
+end
+
+-- Usage: one closure per callback type
+-- RegisterScriptCallback("squad_on_update",
+--     _create_dispatcher("squad_on_update"))</code></pre>
+  </div>
+  <div class="compare-panel">
+    <div class="compare-label cpy">siski_core.script :191-198</div>
+    <pre><code>-- Factory: takes callback name
+local function make_callback_forwarder(name)
+    -- Returns closure that forwards to bus
+    return function(...)
+        if runtime_enabled_now() ~= true then
+            return
+        end
+        publish_bus_event(name, ...)
+    end
+end
+-- Usage: one closure per callback type
+-- RegisterScriptCallback("squad_on_update",
+--     make_callback_forwarder("squad_on_update"))</code></pre>
+  </div>
+</div>
+<p>Same pattern: outer function takes a name, returns an inner function that captures that name and publishes to the bus. SISKI adds a runtime guard; the structure is identical.</p>
+
+<!-- 3c. PRODUCER/CONSUMER -->
+<h3 id="e-prodcon">3c. Producer/Consumer Pipeline</h3>
+
+<p><strong>In plain English:</strong> Most STALKER mods handle everything in one big function. AlifePlus separates the work into three layers: one that detects events, one that routes messages, and one that responds. After the AlifePlus source was published, SISKI adopted the same three-layer design.</p>
+
+<p>AlifePlus uses a three-tier reactive architecture. No other STALKER Anomaly mod uses this separation. The standard approach is monolithic callback handlers or iterator loops.</p>
+
+<div class="mirror">
+<div class="compare-panel">
+<div class="compare-label src">AlifePlus (Mar 18)</div>
+<pre><code>1. Producer
+   (ap_producer_reactive)
+   registers callbacks,
+   evaluates conditions,
+   rate-limits, publishes
+
+2. Bus (xbus)
+   named pub/sub, decouples
+
+3. Consumer (ap_consumer)
+   subscribes, routes to
+   priority-sorted handlers</code></pre>
+</div>
+<div class="compare-panel">
+<div class="compare-label plan">SISKI plan.md line 4 (deleted)</div>
+<pre><code>engine callbacks
+  -> internal event bus
+  -> module subscribers
+  -> local timers/TTL
+
+siski_core remains only as
+engine callback router +
+bus publisher. It does not
+manage tasks directly.</code></pre>
+</div>
+<div class="compare-panel">
+<div class="compare-label cpy">SISKI 0.9.5</div>
+<pre><code>1. Producer (siski_core)
+   registers callbacks,
+   forwards via factory,
+   publishes to bus
+
+2. Bus (siski_bus)
+   named pub/sub, decouples
+
+3. Consumers (12+ modules)
+   each call
+   siski.bus.subscribe()</code></pre>
+</div>
+</div>
+
+<table>
+  <tr><th>Tier</th><th>AlifePlus</th><th>SISKI 0.9.5</th></tr>
+  <tr><td>Producer</td><td><code>ap_producer_reactive.script</code> &mdash; registers callbacks, forwards via <code>_create_dispatcher</code></td><td><code>siski_core.script</code> &mdash; registers callbacks, forwards via <code>make_callback_forwarder</code></td></tr>
+  <tr><td>Bus</td><td><code>xbus.script</code> &mdash; <code>publish</code>/<code>subscribe</code> with named dedup</td><td><code>siski_bus.script</code> &mdash; identical API, identical data structure</td></tr>
+  <tr><td>Consumers</td><td><code>ap_consumer.script</code> &mdash; centralized, subscribes to bus</td><td>12+ modules each call <code>siski.bus.subscribe()</code></td></tr>
+</table>
+
+<!-- 3d. OFF-LEVEL THROTTLE -->
+<h3 id="e-throttle">3d. Off-Level Throttling</h3>
+
+<p><strong>In plain English:</strong> The game simulates hundreds of squads across ~30 maps, but the player is only on one map. AlifePlus reduces processing for squads on other maps so the player's map gets priority. SISKI 0.9.4.1 had no such optimization. After the AlifePlus source was published, SISKI added the same concept with the same level-comparison logic.</p>
+
+<p>AlifePlus classifies every event as on-map or off-map and throttles the unfavored side using a Bresenham integer ratio gate. SISKI 0.9.4.1 had no concept of on-map vs off-map and no level-based throttling.</p>
+
+<div class="mirror">
+<div class="compare-panel">
+<div class="compare-label src">AlifePlus (Mar 18)</div>
+<pre><code>-- ap_producer_reactive :30-37
+local event_level =
+  xlevel.get_level_id(first_arg)
+local actor_level =
+  xlevel.get_actor_level_id()
+local on_map =
+  (event_level == actor_level)
+
+-- Bresenham gate :39-74
+-- on-map: favored (admitted)
+-- off-map: throttled by ratio
+-- MCM configurable</code></pre>
+</div>
+<div class="compare-panel">
+<div class="compare-label plan">(not in deleted plans)</div>
+<pre><code>Appeared 2 days after plan
+in commit cbaf038 (Mar 25),
+labeled "new performance
+feature"</code></pre>
+</div>
+<div class="compare-panel">
+<div class="compare-label cpy">SISKI 0.9.5 (Mar 25)</div>
+<pre><code>-- siski_core :308-341
+local actor_level =
+  current_actor_level_name()
+local squad_level =
+  now_level_name_by_gvid(
+    squad.m_game_vertex_id)
+
+-- Skip counter
+-- on-level: always processed
+-- off-level: skip N updates
+-- MCM configurable</code></pre>
+</div>
+</div>
+
+<p>The mechanism differs (Bresenham ratio vs skip counter), but the design is identical: compare squad level to actor level, always process on-map, throttle off-map. This pattern appeared 7 days after AlifePlus published it.</p>
+
+<!-- 3e. TWO-PHASE INIT -->
+<h3 id="e-init">3e. Two-Phase Initialization</h3>
+
+<p><strong>In plain English:</strong> STALKER mods need to start up in a specific order &mdash; some things can only happen after the game world fully loads. AlifePlus splits startup into two phases: register first, then activate once the world exists. SISKI 0.9.4.1 had no such split. After the AlifePlus source was published, SISKI adopted the same two-phase pattern.</p>
+
+<div class="mirror">
+<div class="compare-panel">
+<div class="compare-label src">AlifePlus architecture.md (Mar 18)</div>
+<pre><code>Phase 1: on_game_start
+  registers engine callbacks.
+  Does NOT subscribe to bus.
+
+Phase 2: actor_on_first_update
+  Game world + actor exist.
+  Producer subscribes to
+  engine callbacks.
+  Consumer subscribes to bus.</code></pre>
+</div>
+<div class="compare-panel">
+<div class="compare-label plan">SISKI plan_stage2.md (deleted)</div>
+<pre><code>actor_on_first_update and
+load_state no longer initiate
+gameplay bootstrap wave across
+all squads. Only init/hydration
+for topology/index/UI layers
+is allowed.</code></pre>
+</div>
+<div class="compare-panel">
+<div class="compare-label cpy">SISKI 0.9.5 siski_core.script</div>
+<pre><code>-- on_game_start():
+RegisterScriptCallback(
+  "actor_on_first_update",
+  siski.core.on_first_update)
+-- registers callbacks only
+
+-- on_first_update():
+_bootstrap_enabled_runtime()
+-- subscribes and initializes</code></pre>
+</div>
+</div>
+
+<!-- 3f. BRIDGE / INTERNALS -->
+<h3 id="e-bridge">3f. AlifePlus Internals Reverse-Engineered</h3>
+
+<p><strong>In plain English:</strong> AlifePlus has internal bookkeeping &mdash; which squads it controls, where they are going, when they were assigned. This data is private: no public API exposes it. SISKI's bridge file reaches directly into these private data structures by name, reads the field names character-for-character, and copies private function names that can only be discovered by reading AlifePlus source code.</p>
+
+<p><code>siski_ap_bridge.script</code> (486 lines, commit <code>6e0fb89</code>, March 28) accesses AlifePlus internal data structures that are not part of any public API:</p>
+
+<p><strong>Reads private tracker fields:</strong></p>
+<div class="compare">
+  <div class="compare-panel">
+    <div class="compare-label src">ap_alife_tracker.script :359-364 (internal data)</div>
+    <pre><code>scripted_squads[squad.id] = {
+    scripted_target = name,
+    target_smart_id = smart.id,
+    tracked_at = xtime.game_sec(),
+    on_arrive = opts.on_arrive,
+    on_arrive_args = opts.on_arrive_args,
+}</code></pre>
+  </div>
+  <div class="compare-panel">
+    <div class="compare-label cpy">siski_ap_bridge.script :129-135</div>
+    <pre><code>tostring(ap_data.scripted_target or "-")
+    .. "|"
+    .. tostring(tonumber(ap_data.target_smart_id) or 0)
+    .. "|"
+    .. tostring(ap_data.tracked_at or 0)
+    .. "|"
+    .. tostring(ap_data.on_arrive or "-")</code></pre>
+  </div>
+</div>
+<p>Access is via <code>rawget(_G, "ap_alife_tracker")</code> &mdash; bypassing module encapsulation to reach internal mutable state.</p>
+
+<p><strong>Verbatim faction string copied from xsmart:</strong></p>
+<div class="compare">
+  <div class="compare-panel">
+    <div class="compare-label src">xsmart.script :418 (xlibs)</div>
+    <pre><code>local ALL_FACTIONS_FC = "army, bandit, csky, dolg, ecolog, freedom, killer, monolith, stalker, renegade, greh, isg"</code></pre>
+  </div>
+  <div class="compare-panel">
+    <div class="compare-label cpy">siski_ap_bridge.script :15</div>
+    <pre><code>local AP_ALL_FACTIONS_FC = "army, bandit, csky, dolg, ecolog, freedom, killer, monolith, stalker, renegade, greh, isg"</code></pre>
+  </div>
+</div>
+<p>12 factions, identical order, character-for-character. This order is not alphabetical and not from any LTX config file. Every other mod in Anomaly modding that lists factions uses a different order:</p>
+<table>
+  <tr><th>Mod</th><th>Faction order</th></tr>
+  <tr style="background:rgba(26,127,55,0.06)"><td><strong>xsmart (Damian)</strong></td><td><strong>army, bandit, csky, dolg, ecolog, freedom, killer, monolith, stalker, renegade, greh, isg</strong></td></tr>
+  <tr style="background:rgba(207,34,46,0.08)"><td><strong>siski_ap_bridge</strong></td><td><strong>army, bandit, csky, dolg, ecolog, freedom, killer, monolith, stalker, renegade, greh, isg</strong></td></tr>
+  <tr><td>Vintar0 Warfare</td><td>stalker, bandit, csky, dolg, freedom, killer, army, ecolog, monolith, renegade, greh, isg</td></tr>
+  <tr><td>ZCP (smr_pop)</td><td>stalker, bandit, csky, duty, freedom, merc, army, ecolog, monolith, renegade, greh, isg, zombied</td></tr>
+  <tr><td>xcvb Guards</td><td>stalker, dolg, freedom, csky, ecolog, killer, army, bandit, renegade, monolith, greh, isg</td></tr>
+</table>
+
+<p><strong>Squad field sequence copied from xsquad:</strong></p>
+<p>Individual fields like <code>scripted_target</code> are standard engine usage. But xsquad groups them into a specific 4-field sequence: <code>scripted_target</code> -> <code>rush_to_target</code> -> <code>assigned_target_id</code> -> <code>current_action</code>. Other Anomaly mods use different sequences (Warfare sets <code>__lock</code> first, uses <code>""</code> instead of a name, and sets <code>current_target_id</code>). SISKI uses xsquad's exact 4-field sequence, inlined across 8 files:</p>
+<div class="compare">
+  <div class="compare-panel">
+    <div class="compare-label src">xsquad.script :488-505 (xlibs)</div>
+    <pre><code>squad.scripted_target    = name            -- 1
+squad.rush_to_target     = rush == true    -- 2
+squad.assigned_target_id = target_smart.id -- 3
+squad.current_action     = 0              -- 4
+
+squad.scripted_target    = nil             -- 1
+squad.rush_to_target     = false           -- 2</code></pre>
+  </div>
+  <div class="compare-panel">
+    <div class="compare-label cpy">siski_ap_bridge.script :197-202</div>
+    <pre><code>squad.scripted_target    = nil             -- 1
+squad.rush_to_target     = false           -- 2
+squad.assigned_target_id = nil             -- 3
+
+
+squad.current_action     = 0              -- 4</code></pre>
+  </div>
+</div>
+<p>For comparison, Warfare's equivalent (<code>sim_squad_warfare.script :935</code>) uses a different sequence: <code>current_action</code> -> <code>scripted_target</code> -> <code>current_target_id</code> -> <code>assigned_target_id</code>, and prefixes with <code>__lock = true</code>. The sequence 1-2-3-4 is xsquad's. Inlined across 8 SISKI files instead of calling <code>xsquad.release_squad()</code>.</p>
+
+<p><strong><code>ap_owned_squad</code> &mdash; reverse-engineering AlifePlus's internal ownership state:</strong></p>
+<p><strong>In plain English:</strong> This function probes AlifePlus's internal bridge module to check if AP currently controls a squad. It reads AP's private function names (<code>should_yield_squad</code>, <code>is_ap_owned_squad</code>) by name.</p>
+
+<p>These function names are not documented anywhere &mdash; discovering them requires reading AlifePlus source code. The function is copy-pasted identically across 4 separate SISKI files:</p>
+<div class="compare">
+  <div class="compare-panel">
+    <div class="compare-label cpy">siski_base_filler.script :109-118</div>
+    <pre><code>local function ap_owned_squad(se_squad, source)
+    local bridge = siski.ap_bridge
+    if bridge and bridge.should_yield_squad then
+        return bridge.should_yield_squad(
+            se_squad, source) == true
+    end
+    if bridge and bridge.is_ap_owned_squad then
+        return bridge.is_ap_owned_squad(
+            se_squad) == true
+    end
+    return false
+end</code></pre>
+  </div>
+  <div class="compare-panel">
+    <div class="compare-label cpy">siski_core.script (identical copy)</div>
+    <pre><code>local function ap_owned_squad(se_squad, source)
+    local bridge = siski.ap_bridge
+    if bridge and bridge.should_yield_squad then
+        return bridge.should_yield_squad(
+            se_squad, source) == true
+    end
+    if bridge and bridge.is_ap_owned_squad then
+        return bridge.is_ap_owned_squad(
+            se_squad) == true
+    end
+    return false
+end</code></pre>
+  </div>
+</div>
+<p>Also identical in <code>siski_service_filler.script</code> and <code>siski_tasks_registry.script</code>. Four copies of the same function that reads AlifePlus's private internal state. The function names <code>should_yield_squad</code> and <code>is_ap_owned_squad</code> come from AlifePlus's internal bridge module &mdash; they are not part of any public API. Using them requires reading AlifePlus source code to discover what functions exist and what they are called.</p>
+
+<!-- SISKI Nano analysis moved to nano.html -->
+
+<!-- PATTERN SUMMARY TABLE -->
+<h3>Summary: all patterns traced to AlifePlus</h3>
+<table>
+  <tr><th>Pattern</th><th style="background:rgba(26,127,55,0.08)">AlifePlus (Mar 18)</th><th>SISKI 0.9.4.1 (Mar 12)</th><th style="background:rgba(207,34,46,0.08)">SISKI 0.9.5 (Mar 23-28)</th><th>Days after AP</th></tr>
+  <tr><td>Event bus (pub/sub)</td><td style="background:rgba(26,127,55,0.04)"><code>xbus.script</code>, 5 functions</td><td>Not present</td><td style="background:rgba(207,34,46,0.05)"><code>siski_bus.script</code>, identical</td><td>5</td></tr>
+  <tr><td>Squad callbacks as tick</td><td style="background:rgba(26,127,55,0.04)"><code>enter/leave_smart</code> in producer</td><td><code>actor_on_update</code> loop</td><td style="background:rgba(207,34,46,0.05)"><code>squad_on_update</code> as FSM tick</td><td>5</td></tr>
+  <tr><td>Enter/leave as semantic events</td><td style="background:rgba(26,127,55,0.04)"><code>RADIANT_CALLBACKS</code></td><td>Not used</td><td style="background:rgba(207,34,46,0.05)">Semantic task events</td><td>5</td></tr>
+  <tr><td>Callback forwarder factory</td><td style="background:rgba(26,127,55,0.04)"><code>_create_dispatcher</code></td><td>Not present</td><td style="background:rgba(207,34,46,0.05)"><code>make_callback_forwarder</code></td><td>5</td></tr>
+  <tr><td>Producer/consumer pipeline</td><td style="background:rgba(26,127,55,0.04)">producer &rarr; bus &rarr; consumer</td><td>Monolithic loop</td><td style="background:rgba(207,34,46,0.05)">core &rarr; bus &rarr; modules</td><td>5</td></tr>
+  <tr><td>Off-level throttling</td><td style="background:rgba(26,127,55,0.04)">Bresenham on/off-map gate</td><td>Not present</td><td style="background:rgba(207,34,46,0.05)"><code>offlevel_skip_counter</code></td><td>7</td></tr>
+  <tr><td>Two-phase initialization</td><td style="background:rgba(26,127,55,0.04)"><code>on_game_start</code> &rarr; <code>actor_on_first_update</code></td><td>Not present</td><td style="background:rgba(207,34,46,0.05)">Same two-phase pattern</td><td>5</td></tr>
+  <tr><td>Internals access</td><td style="background:rgba(26,127,55,0.04)">Private tracker fields</td><td>Not present</td><td style="background:rgba(207,34,46,0.05)"><code>rawget(_G, "ap_alife_tracker")</code></td><td>10</td></tr>
+</table>
+
+<div class="callout key">
+<strong>Every architectural pattern in SISKI 0.9.5 that did not exist in 0.9.4.1 traces to AlifePlus.</strong> The deleted AI plans explicitly describe transforming SISKI into the AlifePlus architecture. The AlifePlus changelog, architecture.md, and source code were all public before the SISKI refactoring began. The author confirmed on Discord that he studied the code and reactive model.
+</div>
+</section>
+
+<!-- 4. PRIOR CODE ATTRIBUTION ISSUES -->
+<section id="prior">
+<h2>Code from Other Authors</h2>
+
+<p>SISKI ships files from other mod authors. In some cases the code is identical; in others the typo trail proves a direct copy. In both cases, credit is absent.</p>
+
+<h3>xcvb's Guards Spawner &mdash; identical file, no credit</h3>
+<div class="compare">
+  <div class="compare-panel">
+    <div class="compare-label src">xcvb guards_spawner.script :18-21</div>
+    <pre><code>local spawn_timer = 129600  -- 86400 = 1 day for each smart/squad
+
+local DELETE_ALL_GUARDS = false  -- if "true" it will delete all
+local debugx = false  -- "M" sets update and respawn times...</code></pre>
+  </div>
+  <div class="compare-panel">
+    <div class="compare-label cpy">siski guards_spawner.script :16-19 (ModDB download)</div>
+    <pre><code>local spawn_timer = 129600 -- 86400 = 1 day for each smart/squad
+
+local DELETE_ALL_GUARDS = false -- if "true" it will delete all
+local debugx = false -- "M" sets update and respawn times...</code></pre>
+  </div>
+</div>
+<p>Same magic constants, same format strings, same debug key bindings, same 16-entry guard data table with identical smart terrain names, faction assignments, and spawn parameters. These files do not appear in SISKI's git history &mdash; shipped only in the ModDB download, outside version control.</p>
+
+<p>SISKI 0.9.5 goes further: the download includes a folder labeled "xcvb's Guards Spawner compatibility" containing <code>guards_spawner.script</code> and <code>emission_guard_patch.script</code>. These are not compatibility patches &mdash; they are xcvb's complete files with the header comments rewritten and SISKI bus integration added. The guard data table (all 16 entries, every smart terrain name, every faction, every rank, every spawn count) is preserved verbatim from xcvb's original. No attribution to xcvb appears anywhere in the files or in the SISKI mod description.</p>
+
+<h3>Demonized's NPC Looting &mdash; preserved typo proves copy</h3>
+<div class="compare">
+  <div class="compare-panel">
+    <div class="compare-label src">Demonized xr_corpse_detection.script :380</div>
+    <pre><code>local can_loot_mutants = not is_stalker
+  and (self.a.analse_mode == "true"
+  or self.a.enabled == "true"
+  and MonsterLootCommunities[character_community(npc)])</code></pre>
+  </div>
+  <div class="compare-panel">
+    <div class="compare-label cpy">siski_loot_patch.script :263 (commit cb7b9c8)</div>
+    <pre><code>local can_loot_mutants = not is_stalker
+  and (self.a.analse_mode == "true"
+  or (self.a.enabled == "true"
+  and mutant_comms[character_community(npc)]))</code></pre>
+  </div>
+</div>
+<p>The typo <code>analse_mode</code> (should be "analyse_mode") exists only in Demonized's code and SISKI's copy. Zero other matches across all STALKER Anomaly mods.</p>
+
+<h3>Other shipped third-party files</h3>
+<p><code>axr_trade_manager.script</code> is a vanilla Anomaly base file (1,496 lines) modified with 50+ SISKI-specific hooks injected directly into the original code. SISKI ships this modified copy as part of the mod without crediting the Anomaly development team.</p>
+<p>Shipping modified base files is common practice in Anomaly modding when no DLTX alternative exists. The issue is not the practice itself but the absence of any attribution &mdash; neither xcvb (guards) nor the Anomaly team (trade manager) are credited anywhere in SISKI's repository, README, changelog, or ModDB description.</p>
+</section>
+
+<!-- 4b. FEATURE SET CLONING -->
+<section id="features">
+<h2>Feature Set Cloning from Anomaly Mods</h2>
+
+<p>Beyond code copying, SISKI's feature list closely mirrors the combined feature sets of several established Anomaly mods. Each of those mods was built by a community author over months or years. SISKI consolidates their ideas into a single package without acknowledgment.</p>
+
+<p>This is not necessarily a license violation &mdash; gameplay ideas are generally not copyrightable, and multiple mods can independently implement similar features. But the <strong>pattern</strong> is notable: SISKI's feature list closely follows what already exists in the Anomaly modding ecosystem, mod by mod.</p>
+
+<table>
+  <tr><th>SISKI feature</th><th>Existing Anomaly mod</th><th>Original author</th><th>What was taken</th></tr>
+  <tr>
+    <td>Dynamic base filling, squad patrol/wander, smart terrain faction control</td>
+    <td><a href="https://www.moddb.com/mods/stalker-anomaly/addons/warfare-alife-overhaul">Warfare ALife Overhaul</a></td>
+    <td>Werejew / Vintar0</td>
+    <td>Warfare introduced base filling (spawn faction squads into controlled smarts), random patrol (redirect idle squads to nearby smarts via <code>process_random_patrol</code>), faction expansion (resource-based squad rank scaling), and smart terrain faction control. SISKI's <code>siski_base_filler</code>, <code>siski_service_filler</code>, <code>siski_dynamic_bases</code>, and task types (<code>PATROL</code>, <code>POPULATE</code>, <code>EXPLORE</code>, <code>BASE_CAMPING</code>) reproduce the same feature set across four files.</td>
+  </tr>
+  <tr>
+    <td>Day/night mutant behavior phases</td>
+    <td><a href="https://www.moddb.com/mods/stalker-anomaly/addons/dynamic-nocturnal-mutants-for-anomaly-151">Dynamic NOCTURNAL Mutants</a></td>
+    <td>bmblbx176</td>
+    <td>Nocturnal Mutants introduced the concept of mutants behaving differently during night hours (22:00-06:00). SISKI applies the same concept to the same time window.</td>
+  </tr>
+  <tr>
+    <td>Guards spawner + emission patrol fix</td>
+    <td><a href="https://www.moddb.com/mods/stalker-anomaly/addons/dynamic-stalkers-guards-v12-for-anomaly">DYNAMIC STALKERS GUARDS</a></td>
+    <td>xcvb</td>
+    <td>Verbatim code copy (documented <a href="#prior">above</a>). xcvb's complete mod is shipped inside SISKI's download with the header rewritten and SISKI hooks added. All guard data (smart terrains, factions, ranks, spawn counts) is preserved verbatim.</td>
+  </tr>
+  <tr>
+    <td>Radiant squad patrol between smarts</td>
+    <td><a href="https://www.moddb.com/mods/stalker-anomaly/addons/semi-radiant-ai-01-dltx-required">Semi Radiant AI</a></td>
+    <td>xcvb</td>
+    <td>Semi Radiant AI assigns NPCs to patrol routes between specific smarts using LTX logic configs (90+ hand-crafted config files per level). SISKI's <code>PATROL</code> task type in <code>siski_tasks_registry</code> achieves the same result -- squads cycle between nearby smarts -- but generates the assignments procedurally via script instead of static config.</td>
+  </tr>
+  <tr>
+    <td>Corpse loot management</td>
+    <td>NPC Looting (xr_corpse_detection)</td>
+    <td><a href="https://www.moddb.com/members/themrdemonized/addons">Demonized</a></td>
+    <td>Direct code copy with preserved <code>analse_mode</code> typo (documented <a href="#prior">above</a>).</td>
+  </tr>
+</table>
+
+<p>None of the original authors &mdash; xcvb, Demonized, Vintar0, bmblbx176, or Damian Sirbu &mdash; are credited in SISKI's repository, README, changelog, code comments, or ModDB description.</p>
+
+<div class="callout warn">
+<strong>On ideas vs code:</strong> Gameplay ideas are difficult to protect under copyright. Multiple mods can implement similar features independently. The pattern documented here is different: every major feature in SISKI traces to an existing community mod, two features include verbatim code copies (xcvb's guards, Demonized's looting), and none of the original authors are credited anywhere in SISKI's repository, ModDB page, or mod files.
+</div>
+</section>
+
+<!-- 5. AI MARKERS -->
+<section id="aislop">
+<h2>AI-Generated Code Artifacts</h2>
+
+<p>The SISKI codebase contains patterns consistent with AI-generated code and inconsistent with code written by an experienced STALKER modder. These corroborate the author's admission ("~95% vibe coded", "I'm not a coder and never was"). This section provides supporting context; the copying claims above do not depend on AI detection.</p>
+
+<table>
+  <tr><th>Marker</th><th>Count</th><th>What it means</th></tr>
+  <tr><td><code>pcall</code> wraps</td><td>488</td><td>1 per 59 lines. Comparable mods use near-zero. Many wraps target C++/luabind methods (<code>:commander_id()</code>, <code>:distance_to()</code>, <code>alife():create()</code>) where pcall cannot catch the error &mdash; if the C++ side faults, the engine terminates regardless. These provide false safety that only code generated without understanding the X-Ray runtime boundary would produce.</td></tr>
+  <tr><td><code>_G.</code> prefixed builtins</td><td>305</td><td>27 files. Roblox/WoW addon pattern. STALKER Lua is not sandboxed. Zero other STALKER mods do this.</td></tr>
+  <tr><td>Hallucinated API calls</td><td>22</td><td>5 files. Calls engine functions that do not exist (<code>level.is_surge()</code>, <code>surge_manager.get_surge()</code>, <code>level.get_time_factor()</code>).</td></tr>
+  <tr><td>Nil-guards on stdlib</td><td>23</td><td>Guards against <code>string</code>, <code>math</code>, <code>table</code> being nil. These are never nil in Lua 5.1.</td></tr>
+  <tr><td>Duplicated utility defs</td><td>33</td><td>15+ files. Same function defined identically in multiple files instead of shared module.</td></tr>
+  <tr><td><code>== true</code> redundant</td><td>349</td><td>22 files. AI does not trust Lua truthiness.</td></tr>
+  <tr><td><code>time_global and time_global()</code></td><td>34</td><td>Engine builtin, always exists. No STALKER mod checks if it exists.</td></tr>
+  <tr><td>Lines changed in 2 days</td><td>23,698</td><td>+7,135/-10,881 in one commit, +4,959/-723 in the next. AI agent output committed in bulk.</td></tr>
+</table>
+
+<p>For comparison: Vintar0's Warfare (21k lines), Demonized's Mugging Squads (1.9k lines), and xcvb's Guards Spawner (353 lines) contain near-zero instances of any of these patterns.</p>
+</section>
+
+<!-- 6. RETALIATION -->
+<section id="harassment">
+<h2>Retaliation and Platform Interventions</h2>
+
+<p>Following publication of AlifePlus, a coordinated effort was organized across Discord and ModDB to accuse the AlifePlus author of copying from SISKI.</p>
+
+<h3>Coordinated call to action</h3>
+<p>An administrator of the AOEngine Discord server posted:</p>
+<blockquote>
+  "this man literally TAKE the whole code from S.I.S.K.I mod (under GPL license), insert it into claude AI with prompt 'make the same, just change the code' and then LICENSED that code!!"<br>
+  "<strong>Strike his mod, shame him, ban him on the stalker resources, ruin his mod rating on moddb</strong>"
+</blockquote>
+<div class="img-row">
+  <img class="thumb" src="img/9d58b237c6a850f496ccd227d9a16980.png" alt="Discord organized harassment" style="max-width:320px">
+</div>
+
+<h3>ModDB slander campaign</h3>
+<blockquote>
+  "So siski mod is an open source code mod, this guy asked claude ai to rewrite an entire code from siski and 'vibe coded' all of it, did the ENTIRE MOD in 2 DAYS and tries to license 'his own code' and strike/ban siski mod."
+</blockquote>
+<p>The git history proves the opposite: AlifePlus development began months before SISKI existed.</p>
+<div class="img-row">
+  <img class="thumb" src="img/moddb-pressure.jpg" alt="ModDB slander" style="max-width:320px">
+</div>
+
+<h3>Platform response</h3>
+<ul>
+  <li><strong>2026-03-21:</strong> ModDB issued qkff99 a warning: "I have issued this user a warning, if it continues please let us know and we will escalate."</li>
+  <li><strong>2026-03-22:</strong> ModDB escalated: "We have escalated by restricting access, and at the final warning before a ban will be issued if it persists."</li>
+  <li>ModDB/DBolical support confirmed coordinated downvote investigation: "We will remove and ban the false downvote accounts."</li>
+  <li>The AlifePlus author was banned from the AOEngine Discord server despite never having posted a message there. The code copying occurred while banned. Unbanned after the copying was done.</li>
+  <li>YouTube slander extended to unrelated STALKER videos.</li>
+  <li>Personal attacks extended to the author's LinkedIn profile.</li>
+</ul>
+
+<p>While associates publicly accused AlifePlus of being "AI coded slop running on stolen code," qkff99 was privately saying: "I processed the Romanian's code docs through my agent" and "siski is vibe coded too, ~95% maybe, but shhh..."</p>
+
+<div class="img-row">
+  <img class="thumb" src="img/siski-banned-moddb.jpg" alt="ModDB warnings" style="max-width:32%">
+  <img class="thumb" src="img/moddb-siski-warning-1.jpg" alt="ModDB first warning" style="max-width:32%">
+  <img class="thumb" src="img/moddb-siski-warning-2.jpg" alt="ModDB second warning" style="max-width:32%">
+</div>
+<div class="img-row">
+  <img class="thumb" src="img/report-moddb-qkff.jpg" alt="ModDB report" style="max-width:24%">
+  <img class="thumb" src="img/screenshot.1774126828.jpg" alt="ModDB attacks" style="max-width:24%">
+  <img class="thumb" src="img/yt-slander.jpg" alt="YouTube slander" style="max-width:24%">
+  <img class="thumb" src="img/aoe-unban.png" alt="Discord ban/unban" style="max-width:24%">
+</div>
+<div class="img-row">
+  <img class="thumb" src="img/moddb-dbolical-1.jpg" alt="ModDB support 1" style="max-width:49%">
+  <img class="thumb" src="img/moddb-dbolical-2.jpg" alt="ModDB support 2" style="max-width:49%">
+</div>
+</section>
+
+<!-- Screenshots section removed -- all screenshots inlined into their relevant sections -->
+
+<footer>
+  <p>
+    All findings are based on comparison of <a href="https://github.com/qkff99/siski">github.com/qkff99/siski</a> (all branches, mirrored and archived on 2026-03-29 and 2026-03-30) against source repositories for xlibs, AlifePlus, xcvb's Guards Spawner, and Demonized's NPC Looting. Git commit timestamps are verifiable in both repositories. Code search covered thousands of mods across the STALKER modding ecosystem.
+  </p>
+  <p style="margin-top:8px;">
+    The deleted AI plans are viewable at their original commit:<br>
+    <code>git show b026c90:plan.md</code><br>
+    <code>git show b026c90:plan_stage2.md</code>
+  </p>
+</footer>
+
+</div><!-- .wrap -->
+</div><!-- .page -->
+
+<div class="lightbox" id="lb" onclick="this.classList.remove('open')"><img id="lb-img" src="" alt=""></div>
+<script>
+document.querySelectorAll('.thumb').forEach(function(img) {
+  img.addEventListener('click', function() {
+    document.getElementById('lb-img').src = this.src;
+    document.getElementById('lb').classList.add('open');
+  });
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') document.getElementById('lb').classList.remove('open');
+});
+// Anchor links on headings
+document.querySelectorAll('h2[id], h3[id]').forEach(function(h) {
+  var a = document.createElement('a');
+  a.className = 'anchor';
+  a.href = '#' + h.id;
+  a.textContent = '#';
+  h.appendChild(a);
+});
+</script>
+</body>
+</html>

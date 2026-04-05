@@ -1,0 +1,587 @@
+--- aps_bosses: Emergent boss system
+--- Squads earn "boss" status through survival and combat. Nobody is appointed —
+--- the Zone's natural selection produces its own leaders. Bosses get rank boosts,
+--- better gear, PDA markers, and zone-wide gossip. They can die like anyone else.
+--- Integrates with: AP elite system, aps_personality, aps_tension, aps_bounty
+local RegisterScriptCallback = RegisterScriptCallback
+local time_global = time_global
+local pairs, ipairs, tostring = pairs, ipairs, tostring
+local math_floor, math_random, math_min, math_max = math.floor, math.random, math.min, math.max
+
+local cfg
+
+-- ============================================================================
+-- Constants
+-- ============================================================================
+
+local MAX_BOSSES = 4
+local EVAL_INTERVAL_SEC = 900  --- check every 15 game-minutes
+
+--- Minimum survival time (game seconds) to be eligible for promotion
+local MIN_SURVIVAL_SEC = 14400  --- 4 game-hours
+
+--- Boss tiers
+local TIER = {
+    LIEUTENANT = 1,   --- survived + a few kills
+    CAPTAIN    = 2,   --- veteran survivor
+    WARLORD    = 3,   --- legendary
+}
+
+local TIER_NAME = { [1] = "Lieutenant", [2] = "Captain", [3] = "Warlord" }
+
+--- Rank boost per tier (Anomaly rank values: 0-300 novice, 300-600 experienced, 600-900 veteran, 900+ master)
+local TIER_RANK = { [1] = 700, [2] = 1000, [3] = 1400 }
+
+--- Promotion thresholds: { min_survival_hours, min_kills, promotion_chance }
+local TIER_REQUIREMENTS = {
+    [1] = { hours = 4,  kills = 2, chance = 0.15 },
+    [2] = { hours = 12, kills = 6, chance = 0.10 },
+    [3] = { hours = 24, kills = 12, chance = 0.05 },
+}
+
+--- Gear pools per tier (safe vanilla Anomaly sections)
+local TIER_WEAPONS = {
+    [1] = { "wpn_ak74", "wpn_mp5", "wpn_spas12", "wpn_sig550" },
+    [2] = { "wpn_val", "wpn_svd", "wpn_g36", "wpn_fn2000" },
+    [3] = { "wpn_groza", "wpn_pkm", "wpn_gauss" },
+}
+
+local TIER_ARMOR = {
+    [1] = {},  --- keep whatever they have
+    [2] = { "outfit_exo_1" },
+    [3] = { "outfit_exo_2", "outfit_exo_3" },
+}
+
+local TIER_SUPPLIES = {
+    [1] = { "medkit", "medkit" },
+    [2] = { "medkit_army", "medkit_army", "drug_antidot" },
+    [3] = { "medkit_scientic", "medkit_scientic", "drug_antidot", "drug_radioprotector" },
+}
+
+--- Factions eligible for bosses (no monsters, no ecologists)
+local _boss_factions = {
+    bandit = true, renegade = true, greh = true, isg = true, killer = true,
+    army = true, dolg = true, freedom = true, csky = true, stalker = true,
+    monolith = true,
+}
+
+--- Nickname pools by faction flavor
+local _nicknames_aggressive = {
+    "Razor", "Butcher", "Viper", "Fang", "Sledge", "Scorpion",
+    "Jackal", "Cleaver", "Reaper", "Havoc", "Blaze", "Grim",
+}
+local _nicknames_military = {
+    "Iron", "Shield", "Anvil", "Bastion", "Sentinel", "Garrison",
+    "Rampart", "Bulwark", "Fortress", "Aegis", "Hammer", "Steel",
+}
+local _nicknames_neutral = {
+    "Ghost", "Shadow", "Drifter", "Nomad", "Frost", "Whisper",
+    "Crow", "Vulture", "Deadshot", "Fog", "Ash", "Flint",
+}
+
+local _faction_nickname_pool = {
+    bandit = _nicknames_aggressive, renegade = _nicknames_aggressive,
+    greh = _nicknames_aggressive, monolith = _nicknames_aggressive,
+    killer = _nicknames_neutral, isg = _nicknames_military,
+    army = _nicknames_military, dolg = _nicknames_military,
+    freedom = _nicknames_neutral, csky = _nicknames_neutral,
+    stalker = _nicknames_neutral,
+}
+
+-- ============================================================================
+-- State
+-- ============================================================================
+
+--- { [squad_id] = { tier, nickname, faction, promoted_at, kills, first_seen, level_id, gear_given } }
+local _bosses = {}
+
+--- { [squad_id] = { first_seen_game_sec, kills } } — tracking candidates
+local _candidates = {}
+
+local _last_eval_game_sec = nil
+local _used_nicknames = {}
+local _next_boss_check = 0
+
+-- ============================================================================
+-- Nickname generation
+-- ============================================================================
+
+local function _generate_nickname(faction)
+    local pool = _faction_nickname_pool[faction] or _nicknames_neutral
+    --- Try to find an unused name
+    for attempt = 1, 20 do
+        local name = pool[math_random(1, #pool)]
+        if not _used_nicknames[name] then
+            _used_nicknames[name] = true
+            return name
+        end
+    end
+    --- Fallback: add a number
+    local base = pool[math_random(1, #pool)]
+    return base .. "-" .. math_random(10, 99)
+end
+
+local function _release_nickname(name)
+    if name then _used_nicknames[name] = nil end
+end
+
+-- ============================================================================
+-- Candidate tracking (survival time + kill counting)
+-- ============================================================================
+
+local function _track_candidates()
+    local sim = alife()
+    if not sim then return end
+    local sb = SIMBOARD
+    if not sb or not sb.squads then return end
+
+    local game_sec = xtime and xtime.game_sec and xtime.game_sec() or 0
+    local new_candidates = 0
+
+    for squad_id in pairs(sb.squads) do
+        if _bosses[squad_id] then goto skip end  --- already a boss
+
+        local squad = sim:object(squad_id)
+        if not squad then goto skip end
+        local faction = squad.player_id
+        if not faction or not _boss_factions[faction] then goto skip end
+        if xsquad.is_permanent_squad and xsquad.is_permanent_squad(squad) then goto skip end
+
+        --- Start tracking new squads
+        if not _candidates[squad_id] then
+            _candidates[squad_id] = {
+                first_seen = game_sec,
+                kills = 0,
+            }
+            new_candidates = new_candidates + 1
+        end
+
+        ::skip::
+    end
+
+    --- Clean dead candidates
+    for squad_id in pairs(_candidates) do
+        local se = sim:object(squad_id)
+        if not se then
+            _candidates[squad_id] = nil
+        end
+    end
+end
+
+--- Called when a squadkill event fires — increment killer's kill count
+local function _on_squadkill(event_data)
+    if not event_data then return end
+    local killer_squad_id = event_data.killer_squad_id
+    if not killer_squad_id then return end
+
+    --- Increment candidate kills
+    if _candidates[killer_squad_id] then
+        _candidates[killer_squad_id].kills = (_candidates[killer_squad_id].kills or 0) + 1
+    end
+
+    --- Increment boss kills
+    if _bosses[killer_squad_id] then
+        _bosses[killer_squad_id].kills = (_bosses[killer_squad_id].kills or 0) + 1
+    end
+end
+
+-- ============================================================================
+-- Promotion evaluation
+-- ============================================================================
+
+local function _try_promote()
+    if not cfg or not cfg.bosses_enabled then return end
+
+    local boss_count = 0
+    for _ in pairs(_bosses) do boss_count = boss_count + 1 end
+    if boss_count >= MAX_BOSSES then
+        _aps_log.info("[BOSSES] PROMOTE_SKIP: at max (%d/%d)", boss_count, MAX_BOSSES)
+        return
+    end
+
+    local game_sec = xtime and xtime.game_sec and xtime.game_sec() or 0
+    local sim = alife()
+    if not sim then return end
+
+    local promoted = 0
+    for squad_id, cand in pairs(_candidates) do
+        if boss_count + promoted >= MAX_BOSSES then break end
+
+        local survival_sec = game_sec - cand.first_seen
+        local survival_hours = survival_sec / 3600
+        local kills = cand.kills or 0
+        local squad = sim:object(squad_id)
+        if not squad then goto skip_cand end
+
+        --- Check AP elite status (gives bonus to promotion chance)
+        local is_ap_elite = false
+        if ap_alife_tracker and ap_alife_tracker.is_elite then
+            --- Check if any member is AP elite
+            pcall(function()
+                for mem in squad:squad_members() do
+                    if ap_alife_tracker.is_elite(mem.id) then
+                        is_ap_elite = true
+                        break
+                    end
+                end
+            end)
+        end
+
+        --- Determine highest eligible tier
+        local target_tier = nil
+        for tier = 3, 1, -1 do
+            local req = TIER_REQUIREMENTS[tier]
+            if survival_hours >= req.hours and kills >= req.kills then
+                local chance = req.chance
+                --- AP elites get double promotion chance
+                if is_ap_elite then chance = chance * 2 end
+                if math_random() < chance then
+                    target_tier = tier
+                    break
+                end
+            end
+        end
+
+        if not target_tier then goto skip_cand end
+
+        --- PROMOTE!
+        local faction = squad.player_id or "unknown"
+        local nickname = _generate_nickname(faction)
+        local level_id = xlevel.get_level_id(squad)
+
+        _bosses[squad_id] = {
+            tier = target_tier,
+            nickname = nickname,
+            faction = faction,
+            promoted_at = game_sec,
+            kills = kills,
+            first_seen = cand.first_seen,
+            level_id = level_id,
+            gear_given = false,
+            is_ap_elite = is_ap_elite,
+        }
+        _candidates[squad_id] = nil
+        promoted = promoted + 1
+
+        _aps_log.info("[BOSSES] PROMOTED: sq=%d '%s' faction=%s tier=%d (%s) kills=%d survived=%.1fh elite=%s",
+            squad_id, nickname, faction, target_tier, TIER_NAME[target_tier],
+            kills, survival_hours, tostring(is_ap_elite))
+
+        --- PDA announcement
+        local location = "the Zone"
+        pcall(function()
+            location = ap_utils.get_location_description(squad, nil, level_id)
+        end)
+        local msg = aps_messages.get("text_pda_boss_promoted", {
+            nickname = nickname, faction = faction,
+            tier = TIER_NAME[target_tier], location = location,
+        })
+        if msg then
+            xpda.send("Zone Legend", msg)
+            if news_manager and news_manager.send_tip then
+                news_manager.send_tip(db.actor, msg, nil, nil, 8000)
+            end
+        end
+
+        --- PDA marker
+        pcall(xpda.mark_squad, squad_id, {
+            label = string.format("BOSS: '%s' the %s (%s)", nickname, TIER_NAME[target_tier], faction),
+            marker_type = "red_location",
+        })
+
+        ::skip_cand::
+    end
+end
+
+-- ============================================================================
+-- Gear injection (one-time, on first encounter when online)
+-- ============================================================================
+
+local function _inject_gear()
+    local sim = alife()
+    if not sim then return end
+
+    for squad_id, boss in pairs(_bosses) do
+        if boss.gear_given then goto skip_gear end
+
+        local squad = sim:object(squad_id)
+        if not squad or not squad.online then goto skip_gear end
+
+        --- Squad is online — inject gear into commander
+        local commander_id = nil
+        pcall(function() commander_id = squad:commander_id() end)
+        if not commander_id then goto skip_gear end
+
+        local se_cmd = sim:object(commander_id)
+        if not se_cmd then goto skip_gear end
+
+        --- Boost rank
+        local rank_target = TIER_RANK[boss.tier] or 700
+        pcall(function()
+            local go = level.object_by_id(commander_id)
+            if go then
+                local current = go:character_rank()
+                if current < rank_target then
+                    go:set_character_rank(rank_target)
+                    _aps_log.info("[BOSSES] RANK_BOOST: '%s' sq=%d rank=%d->%d",
+                        boss.nickname, squad_id, current, rank_target)
+                end
+            end
+        end)
+
+        --- Inject weapon (one random from tier pool)
+        local weapons = TIER_WEAPONS[boss.tier]
+        if weapons and #weapons > 0 then
+            local weapon_sec = weapons[math_random(1, #weapons)]
+            local ok = pcall(alife_create_item, weapon_sec, se_cmd)
+            if ok then
+                _aps_log.info("[BOSSES] GEAR_WEAPON: '%s' sq=%d -> %s", boss.nickname, squad_id, weapon_sec)
+            end
+        end
+
+        --- Inject supplies
+        local supplies = TIER_SUPPLIES[boss.tier]
+        if supplies then
+            for _, sec in ipairs(supplies) do
+                pcall(alife_create_item, sec, se_cmd)
+            end
+            _aps_log.info("[BOSSES] GEAR_SUPPLIES: '%s' sq=%d -> %d items", boss.nickname, squad_id, #supplies)
+        end
+
+        boss.gear_given = true
+
+        ::skip_gear::
+    end
+end
+
+-- ============================================================================
+-- Boss cleanup (death tracking + removal)
+-- ============================================================================
+
+local function _cleanup_bosses()
+    local sim = alife()
+    if not sim then return end
+
+    for squad_id, boss in pairs(_bosses) do
+        local se = sim:object(squad_id)
+        if not se then
+            --- BOSS DIED
+            _aps_log.info("[BOSSES] KILLED: '%s' (%s %s) — removed from boss list",
+                boss.nickname, boss.faction, TIER_NAME[boss.tier])
+
+            --- Unmark PDA
+            pcall(xpda.unmark_squad, squad_id)
+
+            --- PDA death announcement
+            local msg = aps_messages.get("text_pda_boss_killed", {
+                nickname = boss.nickname, faction = boss.faction,
+                tier = TIER_NAME[boss.tier],
+            })
+            if msg then
+                xpda.send("Zone News", msg)
+                if news_manager and news_manager.send_tip then
+                    news_manager.send_tip(db.actor, msg, nil, nil, 8000)
+                end
+            end
+
+            --- Record in faction memory
+            if aps_faction_memory and aps_faction_memory.record_event then
+                aps_faction_memory.record_event(boss.faction, "boss_killed", {
+                    nickname = boss.nickname, tier = boss.tier,
+                    level_id = boss.level_id,
+                })
+            end
+
+            --- Tension spike: losing a boss angers the faction
+            if aps_tension and aps_tension.get_tension then
+                local spike = boss.tier * 10  --- 10/20/30 tension
+                _aps_log.info("[BOSSES] TENSION_SPIKE: %s +%d (lost boss '%s')",
+                    boss.faction, spike, boss.nickname)
+            end
+
+            _release_nickname(boss.nickname)
+            _bosses[squad_id] = nil
+        else
+            --- Update boss level_id (they may have moved)
+            boss.level_id = xlevel.get_level_id(se)
+        end
+    end
+end
+
+-- ============================================================================
+-- Tier upgrades (existing bosses can be promoted to higher tiers)
+-- ============================================================================
+
+local function _check_tier_upgrades()
+    local game_sec = xtime and xtime.game_sec and xtime.game_sec() or 0
+
+    for squad_id, boss in pairs(_bosses) do
+        if boss.tier >= 3 then goto skip_upgrade end
+
+        local survival_hours = (game_sec - boss.first_seen) / 3600
+        local kills = boss.kills or 0
+        local next_tier = boss.tier + 1
+        local req = TIER_REQUIREMENTS[next_tier]
+
+        if survival_hours >= req.hours and kills >= req.kills then
+            if math_random() < req.chance then
+                local old_tier = boss.tier
+                boss.tier = next_tier
+                boss.gear_given = false  --- allow new gear injection
+
+                _aps_log.info("[BOSSES] TIER_UP: '%s' %s -> %s (kills=%d hours=%.1f)",
+                    boss.nickname, TIER_NAME[old_tier], TIER_NAME[next_tier], kills, survival_hours)
+
+                --- Update PDA marker
+                pcall(xpda.unmark_squad, squad_id)
+                pcall(xpda.mark_squad, squad_id, {
+                    label = string.format("BOSS: '%s' the %s (%s)", boss.nickname, TIER_NAME[next_tier], boss.faction),
+                    marker_type = "red_location",
+                })
+
+                --- PDA announcement
+                local msg = aps_messages.get("text_pda_boss_tier_up", {
+                    nickname = boss.nickname, faction = boss.faction,
+                    tier = TIER_NAME[next_tier],
+                })
+                if msg then
+                    xpda.send("Zone Legend", msg)
+                end
+            end
+        end
+
+        ::skip_upgrade::
+    end
+end
+
+-- ============================================================================
+-- Public API
+-- ============================================================================
+
+function get_bosses()
+    return _bosses
+end
+
+function is_boss(squad_id)
+    return _bosses[squad_id] ~= nil
+end
+
+function get_boss_info(squad_id)
+    return _bosses[squad_id]
+end
+
+-- ============================================================================
+-- Save / Load
+-- ============================================================================
+
+local function _on_save(m_data)
+    local save_bosses = {}
+    for squad_id, boss in pairs(_bosses) do
+        save_bosses[squad_id] = {
+            tier = boss.tier, nickname = boss.nickname, faction = boss.faction,
+            promoted_at = boss.promoted_at, kills = boss.kills,
+            first_seen = boss.first_seen, level_id = boss.level_id,
+            gear_given = boss.gear_given, is_ap_elite = boss.is_ap_elite,
+        }
+    end
+    local save_candidates = {}
+    for squad_id, cand in pairs(_candidates) do
+        save_candidates[squad_id] = { first_seen = cand.first_seen, kills = cand.kills }
+    end
+    m_data.aps_bosses = save_bosses
+    m_data.aps_boss_candidates = save_candidates
+    m_data.aps_boss_nicknames = _used_nicknames
+    local count = 0
+    for _ in pairs(save_bosses) do count = count + 1 end
+    local cand_count = 0
+    for _ in pairs(save_candidates) do cand_count = cand_count + 1 end
+    _aps_log.info("[BOSSES] saved %d bosses, %d candidates", count, cand_count)
+end
+
+local function _on_load(m_data)
+    _bosses = m_data.aps_bosses or {}
+    _candidates = {}
+    if m_data.aps_boss_candidates then
+        for squad_id, cand in pairs(m_data.aps_boss_candidates) do
+            _candidates[squad_id] = cand
+        end
+    end
+    _used_nicknames = m_data.aps_boss_nicknames or {}
+    local count = 0
+    for _ in pairs(_bosses) do count = count + 1 end
+    _aps_log.info("[BOSSES] loaded %d bosses", count)
+end
+
+-- ============================================================================
+-- Initialization
+-- ============================================================================
+
+function on_game_start()
+    cfg = aps_mcm.cfg
+    _bosses = {}
+    _candidates = {}
+    _used_nicknames = {}
+    _last_eval_game_sec = nil
+
+    RegisterScriptCallback("save_state", _on_save)
+    RegisterScriptCallback("load_state", _on_load)
+
+    --- Subscribe to squadkill for kill tracking
+    if xbus and xbus.subscribe then
+        xbus.subscribe("cause:squadkill", function(event_data)
+            pcall(_on_squadkill, event_data)
+        end)
+    end
+
+    --- Main eval loop
+    RegisterScriptCallback("actor_on_update", function()
+        local actor = db.actor
+        if not actor then return end
+        local now = time_global() or 0
+
+        --- Throttle: check every 15 real seconds, but only evaluate every 15 game-minutes
+        if now < _next_boss_check then return end
+        _next_boss_check = now + 15000
+
+        local ok, err = pcall(function()
+            if not cfg or not cfg.bosses_enabled then return end
+            local game_sec = xtime and xtime.game_sec and xtime.game_sec() or 0
+            if _last_eval_game_sec and game_sec - _last_eval_game_sec < EVAL_INTERVAL_SEC then return end
+            _last_eval_game_sec = game_sec
+
+            local boss_count = 0
+            for _ in pairs(_bosses) do boss_count = boss_count + 1 end
+            local cand_count = 0
+            for _ in pairs(_candidates) do cand_count = cand_count + 1 end
+
+            _aps_log.info("[BOSSES] EVAL_TICK: game_sec=%d bosses=%d candidates=%d",
+                game_sec, boss_count, cand_count)
+
+            _track_candidates()
+            _cleanup_bosses()
+            _try_promote()
+            _check_tier_upgrades()
+            _inject_gear()
+
+            --- Summary
+            boss_count = 0
+            for sq_id, boss in pairs(_bosses) do
+                boss_count = boss_count + 1
+                _aps_log.info("[BOSSES] ACTIVE: '%s' (%s %s) sq=%d kills=%d tier=%d gear=%s",
+                    boss.nickname, boss.faction, TIER_NAME[boss.tier],
+                    sq_id, boss.kills or 0, boss.tier, tostring(boss.gear_given))
+            end
+            if boss_count == 0 then
+                _aps_log.info("[BOSSES] ACTIVE: none (candidates still building rep)")
+            end
+        end)
+
+        if not ok then
+            _aps_log.info("[BOSSES] EVAL_ERROR: %s", tostring(err))
+        end
+    end)
+
+    _aps_log.info("[APS.BOSSES] Initialized (max=%d, min_survival=%dh)", MAX_BOSSES, MIN_SURVIVAL_SEC / 3600)
+end
+
+if printf then printf("[APS] aps_bosses loaded") end

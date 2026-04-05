@@ -1,0 +1,105 @@
+--- aps_difficulty: Dynamic difficulty scaling
+---
+--- Provides a multiplier that consequences apply to their chance rolls.
+--- The multiplier adjusts based on:
+---   - Population: fewer squads on level = lower chance (fewer outlaws available)
+---   - Weather: emissions suppress robbery, boost predator danger
+---   - Night: robbery doubles at night, predators are more active
+---
+--- Consequences call aps_difficulty.get_multiplier(type) where type is
+--- "robbery", "ambush", "predator", or "vendetta". Returns a float 0.0-2.0.
+--- The consequence multiplies its MCM chance by this value.
+---
+--- This means a 35% robbery chance at MCM default becomes:
+---   17% during low population (0.5x)
+---   35% during normal population (1.0x)
+---   44% during high population (1.25x)
+---   52% at night with high population (1.25 * 1.5 = 1.875, capped at 2.0x)
+---   3% during emission (0.1x)
+
+local math_min, math_max, math_floor = math.min, math.max, math.floor
+
+local _population_mult = 1.0
+local _weather_robbery_mult = 1.0
+local _weather_predator_mult = 1.0
+
+-- ============================================================================
+-- Public API
+-- ============================================================================
+
+--- Get the difficulty multiplier for a consequence type
+--- @param consequence_type string "robbery"|"ambush"|"predator"|"vendetta"
+--- @return number Multiplier 0.0-2.0
+function get_multiplier(consequence_type)
+    local cfg = aps_mcm.cfg
+    if not cfg.difficulty_scaling_enabled then return 1.0 end
+
+    local base = _population_mult
+
+    if consequence_type == "robbery" or consequence_type == "ambush" then
+        base = base * _weather_robbery_mult
+    elseif consequence_type == "predator" then
+        base = base * _weather_predator_mult
+    end
+
+    return math_min(2.0, math_max(0.05, base))
+end
+
+--- Get a chance value adjusted by difficulty
+--- @param base_chance number MCM chance value (0-100)
+--- @param consequence_type string "robbery"|"ambush"|"predator"|"vendetta"
+--- @return number Adjusted chance (0-100)
+function adjust_chance(base_chance, consequence_type)
+    return math_min(100, math_floor(base_chance * get_multiplier(consequence_type) + 0.5))
+end
+
+-- ============================================================================
+-- Population scaling (called by aps_population)
+-- ============================================================================
+
+--- Update population multiplier based on current level squad count
+--- @param squad_count number Squads on player's level
+function update_population(squad_count)
+    --- squad_count=0 means the counter failed (player is clearly on a level with NPCs)
+    --- Treat as baseline rather than "empty" to avoid halving all chances
+    if squad_count <= 0 then
+        _population_mult = 1.0
+        return
+    end
+
+    local low = _aps_const.DIFFICULTY_LOW_POP_THRESHOLD
+    local high = _aps_const.DIFFICULTY_HIGH_POP_THRESHOLD
+
+    if squad_count < low then
+        _population_mult = _aps_const.DIFFICULTY_LOW_MULTIPLIER
+    elseif squad_count > high then
+        _population_mult = _aps_const.DIFFICULTY_HIGH_MULTIPLIER
+    else
+        local ratio = (squad_count - low) / (high - low)
+        _population_mult = _aps_const.DIFFICULTY_LOW_MULTIPLIER +
+            ratio * (_aps_const.DIFFICULTY_HIGH_MULTIPLIER - _aps_const.DIFFICULTY_LOW_MULTIPLIER)
+    end
+end
+
+-- ============================================================================
+-- Weather scaling (called by aps_weather)
+-- ============================================================================
+
+--- Update weather multipliers
+--- @param robbery_mult number Robbery/ambush multiplier
+--- @param predator_mult number Predator multiplier
+function update_weather(robbery_mult, predator_mult)
+    _weather_robbery_mult = robbery_mult or 1.0
+    _weather_predator_mult = predator_mult or 1.0
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+function on_game_start()
+    _population_mult = 1.0
+    _weather_robbery_mult = 1.0
+    _weather_predator_mult = 1.0
+    _aps_log.info("[APS.DIFFICULTY] Initialized")
+end

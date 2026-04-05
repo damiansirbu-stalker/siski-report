@@ -1,0 +1,840 @@
+--- aps_bounty: Faction bounty system
+--- When tension against the player reaches threshold, factions place bounties.
+--- Hunter squads (bandits, mercs) accept contracts based on personality.
+--- Killing hunters increases the bounty. Laying low lets it decay.
+--- Integrates with: aps_tension, aps_personality, aps_risk_eval,
+---   aps_player_intel, aps_faction_memory, aps_messages
+local RegisterScriptCallback = RegisterScriptCallback
+local time_global = time_global
+local RESULT = ap_const.RESULT
+
+local cfg
+
+
+-- ============================================================================
+-- Bounty state (persisted across saves)
+-- ============================================================================
+
+--- { [faction] = { amount, placed_at_game_sec, hunters_killed, last_decay_sec } }
+local _bounties = {}
+
+--- { [squad_id] = { faction, dispatched_at, arrived } }
+local _hunters = {}
+local _last_bounty_game_sec = nil
+
+--- ALL stalker factions — any can place or receive bounties (YANS)
+local _all_factions = {
+    army = true, bandit = true, csky = true, dolg = true, ecolog = true,
+    freedom = true, killer = true, monolith = true, stalker = true,
+    renegade = true, greh = true, isg = true,
+}
+
+--- Factions whose squads can be HIRED as hunters
+local _hunter_factions = {
+    bandit = true, renegade = true, greh = true, isg = true, killer = true,
+}
+
+--- Merc (killer) faction has lower greed threshold for bounty contracts
+local _professional_hunters = { killer = true }
+
+--- Max concurrent bounties to prevent performance issues
+local MAX_BOUNTIES = 8
+
+-- ============================================================================
+-- Bounty placement (tension-driven)
+-- ============================================================================
+
+local function _check_bounties()
+    if not cfg or not cfg.bounty_enabled then
+        _aps_log.info("[BOUNTY] CHECK_SKIP: disabled")
+        return
+    end
+
+    local threshold = cfg.bounty_tension_threshold or 30
+    local base_amount = cfg.bounty_base_amount or 10000
+    local player_threat = aps_player_intel.get_player_threat() or 0.5
+
+    --- Count active bounties
+    local active_count = 0
+    for _ in pairs(_bounties) do active_count = active_count + 1 end
+
+    --- Check ALL faction pairs — any faction can place a bounty on any other (YANS)
+    for placing_faction in pairs(_all_factions) do
+        for target_faction in pairs(_all_factions) do
+            if placing_faction == target_faction then goto next_target end
+            if active_count >= MAX_BOUNTIES then goto done_checking end
+
+            local tension = aps_tension.get_tension(placing_faction, target_faction)
+            local key = placing_faction .. ":" .. target_faction
+            local is_player_target = target_faction == "stalker"
+
+            --- Skip if tension too low or vendetta territory (60+)
+            if tension < threshold or tension >= 60 then
+                if _bounties[key] and tension < threshold then
+                    _aps_log.info("[BOUNTY] EXPIRED: %s->%s tension=%d", placing_faction, target_faction, tension)
+                    _bounties[key] = nil
+                    active_count = active_count - 1
+                end
+                goto next_target
+            end
+
+            --- Calculate bounty amount
+            local tension_mult = tension / 60
+            local threat_mult = is_player_target and math.max(0.5, player_threat) or 0.7
+            local amount = math.floor(base_amount * tension_mult * threat_mult)
+
+            if not _bounties[key] then
+                local game_sec = xtime and xtime.game_sec and xtime.game_sec() or 0
+                _bounties[key] = {
+                    amount = amount,
+                    placing_faction = placing_faction,
+                    target_faction = target_faction,
+                    target_is_player = is_player_target,
+                    placed_at = game_sec,
+                    hunters_killed = 0,
+                    last_decay = game_sec,
+                }
+                active_count = active_count + 1
+                _aps_log.info("[BOUNTY] PLACED: %s->%s amount=%d tension=%d player=%s",
+                    placing_faction, target_faction, amount, tension, tostring(is_player_target))
+
+                --- PDA message
+                if is_player_target then
+                    local msg = aps_messages.get("text_pda_bounty_placed", {
+                        faction = placing_faction, amount = tostring(amount),
+                    })
+                    if msg then
+                        xpda.send("Bounty Alert", msg)
+                        if news_manager and news_manager.send_tip then
+                            news_manager.send_tip(db.actor, msg, nil, nil, 8000)
+                        end
+                    end
+                else
+                    --- Zone gossip: player hears about bounties between other factions
+                    local msg = aps_messages.get("text_pda_bounty_npc", {
+                        placing = placing_faction, target = target_faction, amount = tostring(amount),
+                    })
+                    if msg then
+                        xpda.send("Zone Gossip", msg)
+                    end
+                end
+            else
+                --- Update existing
+                local escalation = _bounties[key].hunters_killed * 0.25
+                local escalated = math.floor(amount * (1 + escalation))
+                if escalated > _bounties[key].amount then
+                    _bounties[key].amount = escalated
+                end
+            end
+
+            ::next_target::
+        end
+        ::next_faction::
+    end
+    ::done_checking::
+end
+
+-- ============================================================================
+-- Bounty decay (time-based)
+-- ============================================================================
+
+local function _decay_bounties()
+    if not cfg or not cfg.bounty_enabled then return end
+    local decay_count = 0
+    for _ in pairs(_bounties) do decay_count = decay_count + 1 end
+    if decay_count > 0 then _aps_log.info("[BOUNTY] DECAY_CHECK: %d active bounties", decay_count) end
+
+    local game_sec = xtime and xtime.game_sec and xtime.game_sec() or 0
+    local decay_rate = (cfg.bounty_decay_rate or 5) / 100  --- 5% per game hour
+    local decay_interval = 3600  --- 1 game hour
+
+    for key, bounty in pairs(_bounties) do
+        if game_sec - bounty.last_decay >= decay_interval then
+            local old = bounty.amount
+            local decay = math.floor(old * decay_rate)
+            bounty.amount = math.max(0, old - decay)
+            bounty.last_decay = game_sec
+
+            if bounty.amount <= 1000 then
+                _aps_log.info("[BOUNTY] DROPPED: %s amount=%d->0 (removed)", key, old)
+                _bounties[key] = nil
+
+                if bounty.target_is_player then
+                    local msg = aps_messages.get("text_pda_bounty_expired", { faction = bounty.placing_faction })
+                    if msg then
+                        xpda.send("Bounty Update", msg)
+                        if news_manager and news_manager.send_tip then
+                            news_manager.send_tip(db.actor, msg, nil, nil, 6000)
+                        end
+                    end
+                end
+            else
+                _aps_log.info("[BOUNTY] DECAY: %s amount=%d->%d (-%.0f%%)",
+                    key, old, bounty.amount, decay_rate * 100)
+            end
+        end
+    end
+end
+
+-- ============================================================================
+-- Hunter dispatch (personality-driven, targets players AND NPCs)
+-- ============================================================================
+
+--- Find a squad of the target faction to use as destination reference
+local function _find_target_squad(target_faction)
+    local sim = alife()
+    local sb = SIMBOARD
+    if not sim or not sb or not sb.squads then return nil end
+    for squad_id in pairs(sb.squads) do
+        local squad = sim:object(squad_id)
+        if squad and squad.player_id == target_faction then
+            if not (xsquad.is_permanent_squad and xsquad.is_permanent_squad(squad)) then
+                return squad
+            end
+        end
+    end
+    return nil
+end
+
+local function _dispatch_hunters()
+    if not cfg or not cfg.bounty_enabled then return end
+
+    local actor = db.actor
+    if not actor then
+        _aps_log.info("[BOUNTY] DISPATCH_SKIP: no actor")
+        return
+    end
+
+    local sim = alife()
+    local sb = SIMBOARD
+    if not sim or not sb or not sb.squads then
+        _aps_log.info("[BOUNTY] DISPATCH_SKIP: no SIMBOARD")
+        return
+    end
+
+    local game_sec = xtime and xtime.game_sec and xtime.game_sec() or 0
+
+    for key, bounty in pairs(_bounties) do
+        if bounty.amount < 5000 then
+            _aps_log.info("[BOUNTY] DISPATCH_SKIP: %s amount=%d too low", key, bounty.amount)
+            goto next_bounty
+        end
+
+        --- Cooldown per bounty
+        if bounty.last_dispatch and game_sec - bounty.last_dispatch < 1800 then
+            _aps_log.info("[BOUNTY] DISPATCH_COOLDOWN: %s %ds remaining", key, 1800 - (game_sec - bounty.last_dispatch))
+            goto next_bounty
+        end
+
+        --- Chance check
+        local chance = 30 + math.floor(bounty.amount / 1000)
+        chance = math.min(60, chance)
+        local roll = math.random(1, 100)
+        if roll > chance then
+            _aps_log.info("[BOUNTY] DISPATCH_CHANCE_FAIL: %s roll=%d needed<=%d", key, roll, chance)
+            goto next_bounty
+        end
+
+        --- Determine target position and level
+        local target_pos, target_level_id, target_desc
+
+        if bounty.target_is_player then
+            --- Skip if player at base
+            local base_ok, base_smart = pcall(xsmart.get_actor_smart)
+            if base_ok and base_smart and xsmart.is_base(base_smart) then
+                _aps_log.info("[BOUNTY] DISPATCH_SKIP: player at base")
+                goto next_bounty
+            end
+            target_pos = actor:position()
+            target_level_id = xlevel.get_actor_level_id()
+            target_desc = "PLAYER"
+        else
+            --- Find a squad of the target faction to hunt
+            local target_sq = _find_target_squad(bounty.target_faction)
+            if not target_sq then
+                _aps_log.info("[BOUNTY] NO_TARGET: no %s squads found for %s bounty",
+                    bounty.target_faction, key)
+                goto next_bounty
+            end
+            target_pos = target_sq.position
+            target_level_id = xlevel.get_level_id(target_sq)
+            target_desc = bounty.target_faction .. " sq=" .. tostring(target_sq.id)
+        end
+
+        if not target_pos or not target_level_id then
+            _aps_log.info("[BOUNTY] DISPATCH_SKIP: %s no target position", key)
+            goto next_bounty
+        end
+
+        _aps_log.info("[BOUNTY] DISPATCH_EVAL: %s amount=%d target=%s chance=%d roll=%d PASS",
+            key, bounty.amount, target_desc, chance, roll)
+
+        --- Find hunter candidates
+        local candidates = {}
+        for squad_id in pairs(sb.squads) do
+            if #candidates >= 4 then break end
+            local squad = sim:object(squad_id)
+            if not squad then goto skip_sq end
+            local sq_faction = squad.player_id
+            if not sq_faction or not _hunter_factions[sq_faction] then goto skip_sq end
+            --- Hunters can't be from the same faction as the target
+            if sq_faction == bounty.target_faction then goto skip_sq end
+            if _hunters[squad_id] then goto skip_sq end
+            if xsquad.is_permanent_squad and xsquad.is_permanent_squad(squad) then goto skip_sq end
+
+            local willing = aps_risk_eval.should_engage(squad_id, bounty.amount / 1000, bounty.target_is_player, "bounty")
+            if not willing and _professional_hunters[sq_faction] then
+                willing = math.random() < 0.6
+            end
+
+            if willing then
+                candidates[#candidates + 1] = squad
+            end
+
+            ::skip_sq::
+        end
+
+        if #candidates == 0 then
+            _aps_log.info("[BOUNTY] NO_HUNTERS: no one willing for %s (%d RU)", key, bounty.amount)
+            goto next_bounty
+        end
+
+        --- Find smart near target
+        local target_smart = xsmart.find_smart(target_pos, {
+            min_distance = 300,
+            max_distance = 2000,
+            level_id = target_level_id,
+        })
+        if not target_smart then
+            _aps_log.info("[BOUNTY] DISPATCH_NO_SMART: %s no smart 300-2000m near target", key)
+            goto next_bounty
+        end
+
+        --- Dispatch up to 2 hunters
+        local dispatched = 0
+        for _, hunter in ipairs(candidates) do
+            if dispatched >= 2 then break end
+
+            if hunter.scripted_target then hunter.scripted_target = nil end
+
+            local sq_level = xlevel.get_level_id(hunter)
+            local same_level = sq_level and target_level_id and sq_level == target_level_id
+
+            local ok, res = pcall(ap_alife_tracker.script_squad, hunter, target_smart, { rush = true })
+            if ok and res and res.code == RESULT.OK_NEXT then
+                if not same_level then
+                    pcall(function()
+                        hunter.m_game_vertex_id = target_smart.m_game_vertex_id
+                        hunter:set_squad_position(target_smart.position)
+                        for mem in hunter:squad_members() do
+                            local se_npc = sim:object(mem.id)
+                            if se_npc then
+                                se_npc.m_game_vertex_id = target_smart.m_game_vertex_id
+                                se_npc.m_level_vertex_id = target_smart.m_level_vertex_id
+                            end
+                        end
+                        local board = SIMBOARD
+                        if board and board.assign_squad_to_smart then
+                            board:assign_squad_to_smart(hunter, target_smart.id)
+                        end
+                    end)
+                end
+
+                if _G.siski and _G.siski.bus and _G.siski.bus.publish then
+                    _G.siski.bus.publish("ap_bridge_squad_owner_changed", {
+                        event = "ap_bridge_squad_owner_changed",
+                        squad_id = hunter.id, owned = true,
+                        owner = "alife_plus", source = "aps_bounty",
+                    })
+                end
+
+                _hunters[hunter.id] = {
+                    bounty_key = key,
+                    target_is_player = bounty.target_is_player,
+                    target_faction = bounty.target_faction,
+                    dispatched_at = os.clock(),
+                    arrived = false,
+                }
+                dispatched = dispatched + 1
+
+                _aps_log.info("[BOUNTY] HUNTER_DISPATCHED: sq=%d faction=%s -> %s target=%s (%d RU) same_level=%s",
+                    hunter.id, tostring(hunter.player_id), tostring(target_smart:name()),
+                    target_desc, bounty.amount, tostring(same_level))
+            end
+        end
+
+        if dispatched > 0 then
+            bounty.last_dispatch = game_sec
+
+            if bounty.target_is_player then
+                local msg = aps_messages.get("text_pda_bounty_hunter_dispatched", {
+                    faction = bounty.placing_faction, amount = tostring(bounty.amount),
+                })
+                if msg then
+                    xpda.send("Contract Accepted", msg)
+                    if news_manager and news_manager.send_tip then
+                        news_manager.send_tip(db.actor, msg, nil, nil, 8000)
+                    end
+                end
+            else
+                --- NPC bounty hunter dispatch — zone gossip
+                local msg = aps_messages.get("text_pda_bounty_npc_hunter_dispatched", {
+                    placing = bounty.placing_faction, target = bounty.target_faction,
+                    amount = tostring(bounty.amount),
+                })
+                if msg then
+                    xpda.send("Zone Activity", msg)
+                end
+            end
+        end
+
+        ::next_bounty::
+    end
+end
+
+-- ============================================================================
+-- Hunter tracking (arrival + actor targeting)
+-- ============================================================================
+
+local function _track_hunters()
+    local actor = db.actor
+    if not actor then return end
+    local actor_pos = actor:position()
+    local actor_level_id = xlevel.get_actor_level_id()
+
+    for squad_id, data in pairs(_hunters) do
+        local se = alife() and alife():object(squad_id)
+        if not se then
+            _aps_log.info("[BOUNTY] HUNTER_GONE: sq=%d bounty=%s (dead/despawned)", squad_id, tostring(data.bounty_key))
+
+            --- Escalate bounty if hunter died
+            if data.bounty_key and _bounties[data.bounty_key] then
+                _bounties[data.bounty_key].hunters_killed = (_bounties[data.bounty_key].hunters_killed or 0) + 1
+                local kills = _bounties[data.bounty_key].hunters_killed
+                _aps_log.info("[BOUNTY] ESCALATION: %s hunters_killed=%d", data.bounty_key, kills)
+
+                if data.target_is_player then
+                    local msg = aps_messages.get("text_pda_bounty_escalated", {
+                        faction = _bounties[data.bounty_key].placing_faction or "unknown",
+                        amount = tostring(_bounties[data.bounty_key].amount),
+                    })
+                    if msg then
+                        xpda.send("Bounty Increased", msg)
+                        if news_manager and news_manager.send_tip then
+                            news_manager.send_tip(db.actor, msg, nil, nil, 8000)
+                        end
+                    end
+                end
+            end
+
+            _hunters[squad_id] = nil
+            goto next_hunter
+        end
+
+        local dist = 0
+        pcall(function() dist = actor_pos:distance_to(se.position) end)
+
+        if data.target_is_player then
+            --- Player target: lock on with script_actor_target on arrival
+            local sq_level_id = xlevel.get_level_id(se)
+            local on_player_level = sq_level_id and actor_level_id and sq_level_id == actor_level_id
+
+            if on_player_level and not data.arrived then
+                data.arrived = true
+                pcall(ap_alife_tracker.script_actor_target, se)
+                _aps_log.info("[BOUNTY] HUNTER_ARRIVED: sq=%d faction=%s dist=%.0fm -> locked on PLAYER",
+                    squad_id, tostring(se.player_id), dist)
+
+                local msg = "A bounty hunter squad is closing in on your position!"
+                xpda.send("Incoming Hunter", msg)
+                if news_manager and news_manager.send_tip then
+                    news_manager.send_tip(db.actor, msg, nil, nil, 8000)
+                end
+            elseif on_player_level then
+                _aps_log.info("[BOUNTY] HUNTER_TRACKING: sq=%d faction=%s dist=%.0fm (hunting player)",
+                    squad_id, tostring(se.player_id), dist)
+            end
+        else
+            --- NPC target: just log, the script_squad dispatch handles movement
+            if not data.arrived then
+                data.arrived = true
+                _aps_log.info("[BOUNTY] HUNTER_ARRIVED: sq=%d faction=%s -> hunting %s NPCs",
+                    squad_id, tostring(se.player_id), tostring(data.target_faction))
+            end
+        end
+
+        --- Expire after 60 real minutes
+        if os.clock() - data.dispatched_at > 3600 then
+            _aps_log.info("[BOUNTY] HUNTER_EXPIRED: sq=%d (timed out)", squad_id)
+            _hunters[squad_id] = nil
+        end
+
+        ::next_hunter::
+    end
+end
+
+-- ============================================================================
+-- Snitch Report (periodic summary PDA message)
+-- ============================================================================
+
+local _last_snitch_report = 0
+
+local function _send_snitch_report()
+    if not cfg or not cfg.bounty_snitch_report_enabled then return end
+
+    local game_sec = xtime and xtime.game_sec and xtime.game_sec() or 0
+    if game_sec - _last_snitch_report < 86400 then return end  --- Once per game day
+    _last_snitch_report = game_sec
+
+    local lines = {}
+    local any = false
+    for key, bounty in pairs(_bounties) do
+        any = true
+        local hunter_count = 0
+        for _, h in pairs(_hunters) do
+            if h.bounty_key == key then hunter_count = hunter_count + 1 end
+        end
+        local level = bounty.amount >= 20000 and "HIGH" or bounty.amount >= 10000 and "MEDIUM" or "LOW"
+        local target = bounty.target_is_player and "YOU" or bounty.target_faction
+        lines[#lines + 1] = string.format("- %s on %s: %d RU (%s) — %d hunters",
+            bounty.placing_faction, target, bounty.amount, level, hunter_count)
+    end
+
+    if not any then return end
+
+    local report = "Here's what I'm hearing about you on the wire:\n" ..
+        table.concat(lines, "\n") ..
+        "\nWatch your back out there."
+    xpda.send("Snitch Report", report)
+    _aps_log.info("[BOUNTY] SNITCH_REPORT: %d active bounties", #lines)
+end
+
+-- ============================================================================
+-- Public API
+-- ============================================================================
+
+function get_bounty(placing_faction, target_faction)
+    local key = placing_faction .. ":" .. (target_faction or "stalker")
+    return _bounties[key]
+end
+
+function get_all_bounties()
+    return _bounties
+end
+
+function get_active_hunters()
+    return _hunters
+end
+
+-- ============================================================================
+-- Console command
+-- ============================================================================
+
+local function _console_status()
+    if printf then
+        printf("[APS BOUNTY STATUS]")
+        local any = false
+        for key, bounty in pairs(_bounties) do
+            any = true
+            local hunters = 0
+            for _, h in pairs(_hunters) do
+                if h.bounty_key == key then hunters = hunters + 1 end
+            end
+            local target = bounty.target_is_player and "PLAYER" or bounty.target_faction
+            printf("  %s -> %s: %d RU (kills=%d, hunters=%d)", bounty.placing_faction, target, bounty.amount, bounty.hunters_killed, hunters)
+        end
+        if not any then printf("  No active bounties") end
+    end
+end
+
+-- ============================================================================
+-- Save / Load
+-- ============================================================================
+
+local function _on_save(m_data)
+    local save = {}
+    local count = 0
+    for key, bounty in pairs(_bounties) do
+        save[key] = {
+            amount = bounty.amount,
+            placing_faction = bounty.placing_faction,
+            target_faction = bounty.target_faction,
+            target_is_player = bounty.target_is_player,
+            placed_at = bounty.placed_at,
+            hunters_killed = bounty.hunters_killed,
+            last_decay = bounty.last_decay,
+            last_dispatch = bounty.last_dispatch,
+        }
+        count = count + 1
+    end
+    m_data.aps_bounties = save
+    m_data.aps_bounty_last_snitch = _last_snitch_report
+    _aps_log.info("[BOUNTY] saved %d bounties", count)
+end
+
+local function _on_load(m_data)
+    _bounties = {}
+    if m_data.aps_bounties then
+        for key, data in pairs(m_data.aps_bounties) do
+            _bounties[key] = data
+        end
+    end
+    _last_snitch_report = m_data.aps_bounty_last_snitch or 0
+    local count = 0
+    for _ in pairs(_bounties) do count = count + 1 end
+    _aps_log.info("[BOUNTY] loaded %d bounties", count)
+end
+
+-- ============================================================================
+-- PDA markers for bounty targets
+-- ============================================================================
+
+local _marked_squads = {}
+
+local function _mark_bounty_targets()
+    if not cfg or not cfg.bounty_enabled then return end
+    _aps_log.info("[BOUNTY] MARKER_CHECK: updating PDA markers")
+
+    local sim = alife()
+    local sb = SIMBOARD
+    if not sim or not sb or not sb.squads then return end
+
+    --- Clear expired markers
+    for sq_id in pairs(_marked_squads) do
+        local se = sim:object(sq_id)
+        if not se then
+            pcall(xpda.unmark_squad, sq_id)
+            _marked_squads[sq_id] = nil
+        end
+    end
+
+    --- Mark squads from factions that have bounties on them
+    local target_factions = {}
+    for key, bounty in pairs(_bounties) do
+        if bounty.amount >= 5000 then
+            target_factions[bounty.target_faction] = {
+                placing = bounty.placing_faction,
+                amount = bounty.amount,
+            }
+        end
+    end
+
+    if not next(target_factions) then return end
+
+    local marked_count = 0
+    local notified_factions = {}
+    for squad_id in pairs(sb.squads) do
+        if marked_count >= 6 then break end  --- limit markers for performance
+        local squad = sim:object(squad_id)
+        if not squad then goto skip_mark end
+        local faction = squad.player_id
+        if not faction or not target_factions[faction] then goto skip_mark end
+        if xsquad.is_permanent_squad and xsquad.is_permanent_squad(squad) then goto skip_mark end
+
+        --- Only mark squads on the player's level (PDA markers only work for online/near squads)
+        local sq_level = xlevel.get_level_id(squad)
+        local actor_level = xlevel.get_actor_level_id()
+        if sq_level ~= actor_level then goto skip_mark end
+
+        if not _marked_squads[squad_id] then
+            local info = target_factions[faction]
+            local label = string.format("BOUNTY TARGET: %s (%d RU from %s)",
+                faction, info.amount, info.placing)
+            pcall(xpda.mark_squad, squad_id, { label = label, marker_type = "red_location" })
+            _marked_squads[squad_id] = true
+            marked_count = marked_count + 1
+
+            --- Notify player about bounty opportunity (once per faction per cycle)
+            if not notified_factions[faction] then
+                notified_factions[faction] = true
+                local msg = aps_messages.get("text_pda_bounty_available", {
+                    target = faction, amount = tostring(info.amount), placing = info.placing,
+                })
+                if msg then
+                    xpda.send("Open Contract", msg)
+                    if news_manager and news_manager.send_tip then
+                        news_manager.send_tip(db.actor, msg, nil, nil, 8000)
+                    end
+                end
+            end
+        end
+
+        ::skip_mark::
+    end
+end
+
+local function _clear_all_markers()
+    for sq_id in pairs(_marked_squads) do
+        pcall(xpda.unmark_squad, sq_id)
+    end
+    _marked_squads = {}
+end
+
+-- ============================================================================
+-- Bounty collection: player kills a bounty target, gets paid
+-- ============================================================================
+
+local function _on_npc_on_death(npc, who)
+    if not cfg or not cfg.bounty_enabled then return end
+    if not npc or not who then return end
+
+    --- Only reward if the player did the killing
+    if who:id() ~= 0 then return end  --- id 0 = actor
+
+    --- Find victim's squad and faction
+    local victim_id = npc:id()
+    local victim_se = alife() and alife():object(victim_id)
+    if not victim_se then return end
+
+    --- Get victim's squad
+    local squad_id = victim_se.squad_id or (victim_se.group_id and victim_se.group_id)
+    if not squad_id then return end
+
+    local squad = alife():object(squad_id)
+    if not squad then return end
+
+    local victim_faction = squad.player_id
+    if not victim_faction then return end
+
+    _aps_log.info("[BOUNTY] PLAYER_KILL: npc=%d faction=%s squad=%d, checking bounties...",
+        victim_id, victim_faction, squad_id)
+
+    --- Check if any bounty targets this faction
+    local best_key, best_bounty = nil, nil
+    for key, bounty in pairs(_bounties) do
+        if bounty.target_faction == victim_faction and bounty.amount >= 5000 then
+            if not best_bounty or bounty.amount > best_bounty.amount then
+                best_key = key
+                best_bounty = bounty
+            end
+        end
+    end
+
+    if not best_bounty then
+        _aps_log.info("[BOUNTY] PLAYER_KILL: no active bounty on %s", victim_faction)
+        return
+    end
+
+    --- Pay the player! Scale reward per NPC (bounty is for the squad, each member pays a portion)
+    local squad_size = 0
+    pcall(function()
+        for _ in squad:squad_members() do squad_size = squad_size + 1 end
+    end)
+    squad_size = math.max(1, squad_size)
+
+    local reward = math.floor(best_bounty.amount / squad_size)
+    reward = math.max(500, reward)  --- minimum 500 RU per kill
+
+    pcall(function() xcreature.give_money(db.actor, reward) end)
+
+    _aps_log.info("[BOUNTY] COLLECTED: player killed %s NPC (sq=%d), earned %d RU from %s bounty (%d RU total)",
+        victim_faction, squad_id, reward, best_key, best_bounty.amount)
+
+    local msg = string.format("Bounty collected: %d RU for eliminating a %s operative.", reward, victim_faction)
+    if news_manager and news_manager.send_tip then
+        news_manager.send_tip(db.actor, msg, nil, nil, 6000)
+    end
+
+    --- Reduce bounty by collected amount
+    best_bounty.amount = math.max(0, best_bounty.amount - reward)
+    if best_bounty.amount < 1000 then
+        _aps_log.info("[BOUNTY] FULLY_COLLECTED: %s bounty depleted by player", best_key)
+        _bounties[best_key] = nil
+
+        local complete_msg = string.format("The %s bounty on %s has been fully collected. Contract closed.",
+            best_bounty.placing_faction, victim_faction)
+        xpda.send("Contract Complete", complete_msg)
+        if news_manager and news_manager.send_tip then
+            news_manager.send_tip(db.actor, complete_msg, nil, nil, 8000)
+        end
+    end
+end
+
+-- ============================================================================
+-- Initialization
+-- ============================================================================
+
+function on_game_start()
+    cfg = aps_mcm.cfg
+    _bounties = {}
+    _hunters = {}
+    _marked_squads = {}
+    _last_snitch_report = 0
+
+    RegisterScriptCallback("save_state", _on_save)
+    RegisterScriptCallback("load_state", _on_load)
+
+    --- Listen for NPC deaths to award bounty money to player
+    RegisterScriptCallback("npc_on_death_callback", _on_npc_on_death)
+
+    --- Main update loop via actor_on_update (proven reliable)
+    local _next_check_at = 0
+    local _next_track_at = 0
+    local _next_decay_at = 0
+
+    RegisterScriptCallback("actor_on_update", function()
+        local actor = db.actor
+        if not actor then return end
+        local now = time_global() or 0
+
+        --- Track hunters every 30 real seconds
+        if now > _next_track_at then
+            _next_track_at = now + 30000
+            local ok, err = pcall(_track_hunters)
+            if not ok then
+                _aps_log.info("[BOUNTY] TRACK_ERROR: %s", tostring(err))
+            end
+        end
+
+        --- Check/place bounties + dispatch hunters every 5 game minutes
+        if now > _next_check_at then
+            _next_check_at = now + 15000  --- check every 15 real seconds
+            local ok, err = pcall(function()
+                if not cfg or not cfg.bounty_enabled then return end
+                local game_sec = xtime and xtime.game_sec and xtime.game_sec() or 0
+                if _last_bounty_game_sec and game_sec - _last_bounty_game_sec < 300 then return end
+                _last_bounty_game_sec = game_sec
+
+                _aps_log.info("[BOUNTY] EVAL_TICK (game_sec=%d)", game_sec)
+
+                --- Log tension levels for all faction pairs above 10
+                for pf in pairs(_all_factions) do
+                    for tf in pairs(_all_factions) do
+                        if pf ~= tf then
+                            local t = aps_tension.get_tension(pf, tf)
+                            if t > 10 then
+                                _aps_log.info("[BOUNTY] TENSION: %s->%s = %d", pf, tf, t)
+                            end
+                        end
+                    end
+                end
+
+                _check_bounties()
+                _dispatch_hunters()
+                _mark_bounty_targets()
+                _send_snitch_report()
+
+                --- Summary
+                local b_count, h_count, m_count = 0, 0, 0
+                for _ in pairs(_bounties) do b_count = b_count + 1 end
+                for _ in pairs(_hunters) do h_count = h_count + 1 end
+                for _ in pairs(_marked_squads) do m_count = m_count + 1 end
+                _aps_log.info("[BOUNTY] EVAL_SUMMARY: bounties=%d hunters=%d markers=%d", b_count, h_count, m_count)
+            end)
+            if not ok then
+                _aps_log.info("[BOUNTY] EVAL_ERROR: %s", tostring(err))
+            end
+        end
+
+        --- Decay bounties every 60 real seconds
+        if now > _next_decay_at then
+            _next_decay_at = now + 60000
+            pcall(_decay_bounties)
+        end
+    end)
+
+    _aps_log.info("[APS.BOUNTY] Initialized (tension_threshold=%d, base_amount=%d)",
+        cfg.bounty_tension_threshold or 30, cfg.bounty_base_amount or 10000)
+end
+
+if printf then printf("[APS] aps_bounty loaded") end

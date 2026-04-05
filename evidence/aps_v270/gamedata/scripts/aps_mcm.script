@@ -1,0 +1,154 @@
+--- aps_mcm: MCM configuration for AlifePlus SISKI Synergy
+local RegisterScriptCallback = RegisterScriptCallback
+
+defaults = {
+    --- Cause: Wealthy
+    cause_wealthy_enabled = true,
+    cause_wealthy_threshold = 40,
+    cause_wealthy_sweep_enabled = true,
+
+    --- Cause: Predator
+    cause_predator_enabled = true,
+    cause_predator_detect_radius = 300,
+
+    --- Consequence: Wealthy Rob
+    consequence_wealthy_rob_enabled = true,
+    consequence_wealthy_rob_chance = 35,
+    consequence_wealthy_rob_pda_chance = 30,
+    consequence_wealthy_rob_max_squads = 2,
+    consequence_wealthy_rob_max_chases = 3,
+    consequence_wealthy_rob_rush = true,
+    consequence_wealthy_rob_crosslevel = true,
+
+    --- Consequence: Wealthy Ambush
+    consequence_wealthy_ambush_enabled = true,
+    consequence_wealthy_ambush_chance = 20,
+    consequence_wealthy_ambush_pda_chance = 25,
+    consequence_wealthy_ambush_max_squads = 2,
+    consequence_wealthy_ambush_rush = false,
+
+    --- Consequence: Predator Alert
+    consequence_predator_alert_enabled = true,
+    consequence_predator_alert_chance = 40,
+    consequence_predator_alert_pda_chance = 30,
+    consequence_predator_alert_max_squads = 3,
+
+    --- Consequence: Predator Flee
+    consequence_predator_flee_enabled = true,
+    consequence_predator_flee_chance = 50,
+
+    --- Faction Tension
+    tension_enabled = true,
+    tension_vendetta_threshold = 60,
+    tension_vendetta_pda_chance = 30,
+
+    --- Population Safeguard
+    population_safeguard_enabled = true,
+    population_min_squads = 8,
+
+    --- Dynamic Difficulty
+    difficulty_scaling_enabled = true,
+
+    --- Weather Modifiers
+    weather_modifiers_enabled = true,
+
+    --- Danger Zones
+    danger_zones_enabled = true,
+    danger_zones_markers_enabled = true,
+
+    --- Bounty System
+    bounty_enabled = true,
+    bounty_tension_threshold = 30,
+    bounty_base_amount = 10000,
+    bounty_decay_rate = 5,
+    bounty_snitch_report_enabled = true,
+
+    --- Boss System
+    bosses_enabled = true,
+}
+
+local path_builder = function(key) return "aps/" .. key end
+
+--- create_config returns: table (dot-notation), getter function, loader function
+--- The table is pre-seeded from defaults and refreshed by load_config on MCM change
+cfg, get_config, load_config = xmcm.create_config("aps", defaults, path_builder)
+
+function on_game_start()
+    load_config()
+    RegisterScriptCallback("on_option_change", load_config)
+    _aps_log.info("[APS.MCM] Initialized")
+end
+
+--- MCM menu definition
+function on_mcm_load()
+    local op = {
+        id = "aps",
+        sh = true,
+        gr = {
+            { id = "title", type = "slide", link = "ui_options_slider_player", text = "ui_mcm_aps_title", size = { 512, 50 } },
+            { id = "desc", type = "desc", text = "ui_mcm_aps_desc" },
+
+            --- Population Safeguard
+            { id = "pop_divider", type = "line" },
+            { id = "pop_header", type = "desc", text = "ui_mcm_aps_pop_title", clr = { 255, 100, 200, 100 } },
+            { id = "population_safeguard_enabled", type = "check", val = 1, def = true },
+            { id = "population_min_squads", type = "track", val = 2, min = 3, max = 20, step = 1, def = 8 },
+
+            --- Wealthy
+            { id = "wealthy_divider", type = "line" },
+            { id = "wealthy_header", type = "desc", text = "ui_mcm_aps_wealthy_title", clr = { 255, 200, 170, 80 } },
+            { id = "cause_wealthy_enabled", type = "check", val = 1, def = true },
+            { id = "cause_wealthy_threshold", type = "track", val = 2, min = 10, max = 90, step = 5, def = 40 },
+            { id = "cause_wealthy_sweep_enabled", type = "check", val = 1, def = true },
+            { id = "consequence_wealthy_rob_enabled", type = "check", val = 1, def = true },
+            { id = "consequence_wealthy_rob_chance", type = "track", val = 2, min = 0, max = 100, step = 5, def = 35 },
+            { id = "consequence_wealthy_rob_max_squads", type = "track", val = 2, min = 1, max = 5, step = 1, def = 2 },
+            { id = "consequence_wealthy_rob_max_chases", type = "track", val = 2, min = 1, max = 10, step = 1, def = 3 },
+            { id = "consequence_wealthy_rob_rush", type = "check", val = 1, def = true },
+            { id = "consequence_wealthy_rob_crosslevel", type = "check", val = 1, def = true },
+            { id = "consequence_wealthy_rob_pda_chance", type = "track", val = 2, min = 0, max = 100, step = 5, def = 30 },
+            { id = "consequence_wealthy_ambush_enabled", type = "check", val = 1, def = true },
+            { id = "consequence_wealthy_ambush_chance", type = "track", val = 2, min = 0, max = 100, step = 5, def = 20 },
+            { id = "consequence_wealthy_ambush_max_squads", type = "track", val = 2, min = 1, max = 4, step = 1, def = 2 },
+            { id = "consequence_wealthy_ambush_rush", type = "check", val = 1, def = false },
+            { id = "consequence_wealthy_ambush_pda_chance", type = "track", val = 2, min = 0, max = 100, step = 5, def = 25 },
+
+            --- Predator
+            { id = "predator_divider", type = "line" },
+            { id = "predator_header", type = "desc", text = "ui_mcm_aps_predator_title", clr = { 255, 200, 170, 80 } },
+            { id = "cause_predator_enabled", type = "check", val = 1, def = true },
+            { id = "cause_predator_detect_radius", type = "track", val = 2, min = 100, max = 500, step = 50, def = 300 },
+            { id = "consequence_predator_alert_enabled", type = "check", val = 1, def = true },
+            { id = "consequence_predator_alert_chance", type = "track", val = 2, min = 0, max = 100, step = 5, def = 40 },
+            { id = "consequence_predator_alert_max_squads", type = "track", val = 2, min = 1, max = 5, step = 1, def = 3 },
+            { id = "consequence_predator_alert_pda_chance", type = "track", val = 2, min = 0, max = 100, step = 5, def = 30 },
+            { id = "consequence_predator_flee_enabled", type = "check", val = 1, def = true },
+            { id = "consequence_predator_flee_chance", type = "track", val = 2, min = 0, max = 100, step = 5, def = 50 },
+
+            --- Tension
+            { id = "tension_divider", type = "line" },
+            { id = "tension_header", type = "desc", text = "ui_mcm_aps_tension_title", clr = { 255, 200, 170, 80 } },
+            { id = "tension_enabled", type = "check", val = 1, def = true },
+            { id = "tension_vendetta_threshold", type = "track", val = 2, min = 30, max = 100, step = 5, def = 60 },
+            { id = "tension_vendetta_pda_chance", type = "track", val = 2, min = 0, max = 100, step = 5, def = 30 },
+
+            --- Dynamic Difficulty
+            { id = "diff_divider", type = "line" },
+            { id = "diff_header", type = "desc", text = "ui_mcm_aps_diff_title", clr = { 255, 100, 200, 100 } },
+            { id = "difficulty_scaling_enabled", type = "check", val = 1, def = true },
+
+            --- Weather
+            { id = "weather_divider", type = "line" },
+            { id = "weather_header", type = "desc", text = "ui_mcm_aps_weather_title", clr = { 255, 100, 200, 100 } },
+            { id = "weather_modifiers_enabled", type = "check", val = 1, def = true },
+
+            --- Danger Zones
+            { id = "danger_divider", type = "line" },
+            { id = "danger_header", type = "desc", text = "ui_mcm_aps_danger_title", clr = { 255, 100, 200, 100 } },
+            { id = "danger_zones_enabled", type = "check", val = 1, def = true },
+            { id = "danger_zones_markers_enabled", type = "check", val = 1, def = true },
+        },
+    }
+    return op
+end
+if printf then printf('[APS] aps_mcm loaded') end

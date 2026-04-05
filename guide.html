@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Using xlibs and AlifePlus</title>
+<style>
+:root {
+  --bg: #faf9f6;
+  --bg-card: #f0f0ee;
+  --bg-code: #ebebeb;
+  --border: #c8c3b6;
+  --fg: #2c2a25;
+  --fg-dim: #6e6960;
+  --blue: #0969da;
+  --green: #1a7f37;
+  --red: #cf222e;
+  --yellow: #9a6700;
+  --sand: #d4c5a0;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: Georgia, "Times New Roman", Times, serif;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--fg);
+  background: var(--bg);
+}
+.page { display: flex; max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+.sidebar {
+  width: 260px; min-width: 260px; padding: 40px 0 80px 0; margin-right: 32px;
+}
+.sidebar nav {
+  position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+  padding: 14px 16px; font-size: 13px;
+}
+.sidebar nav h2 { font-size: 13px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.sidebar nav ol { padding-left: 18px; margin-bottom: 0; }
+.sidebar nav li { margin-bottom: 4px; font-size: 13px; line-height: 1.5; }
+.sidebar nav a { color: var(--blue); text-decoration: none; }
+.sidebar nav a:hover { text-decoration: underline; }
+.wrap { max-width: 860px; flex: 1; min-width: 0; padding: 40px 0 80px; }
+header { margin-bottom: 32px; }
+header h1 { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+header p { color: var(--fg-dim); font-size: 14px; }
+section { margin-bottom: 40px; }
+h2 { font-size: 22px; font-weight: 700; padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+h3 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
+p { margin-bottom: 10px; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 13px; }
+th, td { padding: 6px 10px; border: 1px solid var(--border); text-align: left; }
+th { background: var(--bg-card); font-weight: 600; }
+tr:nth-child(even) td { background: var(--bg-card); }
+pre {
+  background: var(--bg-code);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 14px;
+  overflow-x: auto;
+  margin-bottom: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+p code, li code, td code { background: var(--bg-code); padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border); }
+.callout { padding: 12px 16px; border-radius: 6px; margin-bottom: 14px; border-left: 3px solid; background: var(--bg-card); font-size: 14px; }
+.callout.note { border-color: var(--blue); }
+.callout.key { border-color: var(--green); }
+.callout.warn { border-color: var(--yellow); }
+ol, ul { padding-left: 20px; margin-bottom: 10px; }
+li { margin-bottom: 3px; }
+footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: 12px; }
+footer a { color: var(--blue); }
+@media (max-width: 960px) {
+  .page { flex-direction: column; padding: 0 16px; }
+  .sidebar { width: 100%; min-width: 0; margin-right: 0; padding: 20px 0 0 0; }
+  .sidebar nav { position: static; max-height: none; }
+  .wrap { padding: 20px 0 60px; }
+}
+.topnav-wrap { position: sticky; top: 0; z-index: 100; background: var(--bg); border-bottom: 1px solid var(--border); }
+.topnav { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 12px 24px; font-size: 13px; font-weight: 500; max-width: 1180px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+.sidebar nav, table { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+.topnav a { color: var(--fg-dim); text-decoration: none; padding: 4px 6px; border-radius: 4px; transition: background 0.1s, color 0.1s; }
+.topnav a:hover { color: var(--blue); background: var(--bg-card); }
+.topnav a.active { color: var(--fg); border-bottom: 2px solid var(--sand); }
+.topnav .sep { width: 1px; height: 14px; background: var(--border); align-self: center; margin: 0 4px; }
+
+/* Stack diagram */
+.stack { display: flex; flex-direction: column; gap: 0; margin: 20px 0 24px; max-width: 520px; font-size: 13px; }
+.stack-layer {
+  padding: 10px 16px;
+  border: 1px solid var(--border);
+  text-align: center;
+  line-height: 1.5;
+}
+.stack-layer:first-child { border-radius: 6px 6px 0 0; }
+.stack-layer:last-child { border-radius: 0 0 6px 6px; }
+.stack-layer + .stack-layer { border-top: none; }
+.stack-layer strong { display: block; font-size: 13px; margin-bottom: 2px; }
+.stack-layer small { color: var(--fg-dim); font-size: 12px; }
+/* Pipeline diagram */
+.pipeline { display: flex; flex-direction: column; align-items: center; gap: 0; margin: 20px 0 24px; max-width: 480px; font-size: 13px; }
+.pipe-node {
+  width: 100%;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-align: center;
+  position: relative;
+  line-height: 1.4;
+}
+.pipe-node strong { font-size: 13px; }
+.pipe-node small { color: var(--fg-dim); font-size: 12px; display: block; }
+.pipe-gate { background: var(--bg-card); }
+.pipe-action { background: rgba(26,127,55,0.06); }
+.pipe-entry { background: rgba(9,105,218,0.06); }
+.pipe-arrow {
+  width: 2px; height: 16px; background: var(--border); position: relative;
+}
+.pipe-arrow::after {
+  content: ''; position: absolute; bottom: -4px; left: -4px;
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
+  border-top: 5px solid var(--border);
+}
+.pipe-reject {
+  position: absolute; right: -90px; top: 50%; transform: translateY(-50%);
+  font-size: 11px; color: var(--fg-dim); white-space: nowrap;
+}
+.pipe-reject::before {
+  content: '->'; margin-right: 4px; color: var(--border);
+}
+@media (max-width: 960px) {
+  .pipe-reject { position: static; transform: none; display: block; margin-top: 4px; }
+  .pipe-reject::before { content: '| '; }
+}
+.stack-mods { background: rgba(9,105,218,0.06); }
+.stack-ap { background: rgba(26,127,55,0.06); }
+.stack-xlibs { background: rgba(154,103,0,0.06); }
+.stack-engine { background: var(--bg-card); }
+
+h2 .anchor, h3 .anchor { opacity: 0; margin-left: 6px; color: var(--fg-dim); text-decoration: none; font-size: 0.8em; transition: opacity 0.15s; }
+h2:hover .anchor, h3:hover .anchor { opacity: 0.6; }
+h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
+
+@media print {
+  .topnav-wrap, .sidebar { display: none !important; }
+  .page { display: block; padding: 0; }
+  .wrap { max-width: 100%; padding: 0; }
+  body { font-size: 12pt; line-height: 1.5; }
+  h2 { page-break-before: always; }
+  h2:first-of-type { page-break-before: avoid; }
+  pre { white-space: pre-wrap; word-wrap: break-word; font-size: 9pt; }
+  table { font-size: 9pt; }
+  a[href]::after { content: " (" attr(href) ")"; font-size: 8pt; color: #666; }
+  a[href^="#"]::after { content: ""; }
+}
+</style>
+</head>
+<body>
+
+<div class="topnav-wrap">
+<nav class="topnav">
+  <a href="index.html">Home</a>
+  <a href="guide.html" class="active">Usage Guide</a>
+  <a href="siski.html">SISKI Report</a>
+  <a href="nano.html">SISKI Nano</a>
+  <a href="aps.html">APS Analysis</a>
+  <a href="https://github.com/damiansirbu-stalker" style="margin-left:auto">GitHub</a>
+</nav>
+</div>
+
+<div class="page">
+
+<div class="sidebar">
+<nav>
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#what">What They Are</a></li>
+    <li><a href="#license">License</a></li>
+    <li><a href="#xlibs">xlibs Toolbox</a></li>
+    <li><a href="#alifeplus">AlifePlus Integration</a></li>
+    <li><a href="#vision">Architecture</a></li>
+  </ol>
+</nav>
+</div>
+
+<div class="wrap">
+
+<header>
+  <h1>Using xlibs and AlifePlus</h1>
+  <p>Guide for mod authors &middot; Damian Sirbu &middot; 2026-04-05</p>
+</header>
+
+<div class="callout key">
+<strong>Want to build on these systems?</strong> See the <a href="#vision">architecture</a> section for the design and integration examples, or jump straight to <a href="#alifeplus">integration levels</a>. Contact details at the bottom.
+</div>
+
+<!-- WHAT THEY ARE -->
+<section id="what">
+<h2>What They Are</h2>
+
+<p><strong>xlibs</strong> is an engine abstraction layer for STALKER Anomaly. It wraps X-Ray engine APIs in safe Lua functions: squad operations, smart terrain queries, entity resolution, an event bus, MCM config, PDA messaging, logging, and profiling.</p>
+
+<p><strong>AlifePlus</strong> is a reactive behavior framework built on xlibs. Engine callbacks produce <strong>causes</strong> (a squad entered a smart terrain, an NPC died, a stash was looted). The pipeline routes causes to registered <strong>consequences</strong> (a nearby faction investigates, a revenge squad is dispatched). Throttling, protection, rate limiting, ownership, and lifecycle are handled by the framework. Mods register a predicate and a handler.</p>
+
+<div class="stack">
+  <div class="stack-layer stack-mods"><strong>Mods</strong><small>domain logic: predicate + handler</small></div>
+  <div class="stack-layer stack-ap"><strong>AlifePlus</strong><small>dispatcher, throttling, protection, cause/consequence routing, lifecycle</small></div>
+  <div class="stack-layer stack-xlibs"><strong>xlibs</strong><small>xbus, xsquad, xsmart, xlevel, xobject, xtime, xlog, xmcm</small></div>
+  <div class="stack-layer stack-engine"><strong>X-Ray Engine</strong><small>callbacks, luabind, server objects, A-Life simulation</small></div>
+</div>
+
+<p>Both are published under the PolyForm Perimeter License. Addons, integrations, and modpacks are encouraged with visible credit.</p>
+</section>
+
+<!-- LICENSE -->
+<section id="license">
+<h2>License</h2>
+
+<table>
+  <tr><th style="color:var(--green)">Allowed</th><th style="color:var(--red)">Not Allowed</th></tr>
+  <tr>
+    <td>Calling xlibs/AP functions from your mod<br>Addons and integrations that depend on them<br>Modpacks (encouraged)<br>Reading source to learn, extend, debug<br>Using AI tools to learn the public API</td>
+    <td>Reproducing the implementation as a standalone replacement<br>Reverse engineering internals to reproduce design<br>Automated extraction for reproduction</td>
+  </tr>
+</table>
+
+<p><strong>Required:</strong> Visible credit -- <em>"xlibs by Damian Sirbu"</em> and/or <em>"AlifePlus by Damian Sirbu"</em>.</p>
+</section>
+
+<!-- XLIBS -->
+<section id="xlibs">
+<h2>xlibs: The Modder's Toolbox</h2>
+
+<p>xlibs wraps X-Ray engine APIs based on reading the engine source (X-Ray Monolith C++), the Anomaly scripting layer, modded executable extensions, and established patterns from reputable community mods. The API surface was validated through tracing and load testing the Anomaly engine using Grafana k6 and a custom benchmarking framework. Key modules:</p>
+
+<table>
+  <tr><th>Module</th><th>What it does</th><th>Example</th></tr>
+  <tr><td><code>xbus</code></td><td>Event bus (pub/sub)</td><td><code>xbus.subscribe("cause:massacre", fn, "my_handler")</code></td></tr>
+  <tr><td><code>xsquad</code></td><td>Find, script, release, protect squads</td><td><code>xsquad.find_squads(pos, {factions=t, max_distance=500})</code></td></tr>
+  <tr><td><code>xsmart</code></td><td>Smart terrain queries</td><td><code>xsmart.find_smart(pos, {filter=xsmart.is_base})</code></td></tr>
+  <tr><td><code>xcreature</code></td><td>Entity identity and queries</td><td><code>xcreature.community(id)</code>, <code>xcreature.query():stalkers():each(fn)</code></td></tr>
+  <tr><td><code>xpda</code></td><td>PDA messages and map markers</td><td><code>xpda.send("Title", "Message")</code></td></tr>
+  <tr><td><code>xmcm</code></td><td>MCM config management</td><td><code>xmcm.create_config("mymod", defaults, path_builder)</code></td></tr>
+  <tr><td><code>xlog</code></td><td>Buffered file logging</td><td><code>xlog.get_logger("MY.MOD", {outfile="mymod.log"})</code></td></tr>
+  <tr><td><code>xlevel</code></td><td>Level/map queries</td><td><code>xlevel.get_actor_level_id()</code></td></tr>
+  <tr><td><code>xobject</code></td><td>Entity resolution, item creation</td><td><code>xobject.se(any_input)</code>, <code>xobject.create_item(sec, npc_id)</code></td></tr>
+  <tr><td><code>xtime</code></td><td>Game time</td><td><code>xtime.game_sec()</code></td></tr>
+  <tr><td><code>xmath</code></td><td>RNG, probability, weighted choice</td><td><code>xmath.chance(30)</code>, <code>xmath.sample(tbl)</code></td></tr>
+  <tr><td><code>xevent</code></td><td>Function hooking, synthetic callbacks</td><td><code>xevent.hook("module", "func", wrapper)</code></td></tr>
+</table>
+
+<p>Full docs: <a href="https://github.com/damiansirbu-stalker/xlibs">github.com/damiansirbu-stalker/xlibs</a></p>
+</section>
+
+<!-- ALIFEPLUS -->
+<section id="alifeplus">
+<h2>AlifePlus: Three Levels of Integration</h2>
+
+<h3>Level 1: Listen to events (easiest, no AP internals)</h3>
+<p>Subscribe to AlifePlus cause events via xbus. This is the recommended starting point.</p>
+<pre><code>function on_game_start()
+    xbus.subscribe("cause:massacre", function(data)
+        -- data.position, data.level_id, data.total_deaths
+        my_response(data)
+    end, "my_mod_massacre")
+end</code></pre>
+
+<p>Available events: <code>cause:elite</code>, <code>cause:elitekill</code>, <code>cause:massacre</code>, <code>cause:squadkill</code>, <code>cause:basekill</code>, <code>cause:area</code>, <code>cause:wounded</code>, <code>cause:stash</code>, <code>cause:harvest</code>, <code>cause:needs</code>.</p>
+
+<h3>Level 2: Register causes and consequences (intermediate)</h3>
+<p>Register your behavior with AP's pipeline. You get throttling, protection, rate limiting, and PDA for free.</p>
+<pre><code>-- Cause: detect something interesting
+local function _predicate(trace, squad)
+    if not is_interesting(squad) then return nil end
+    return { cause = "cause:my_event", squad_id = squad.id, ... }
+end
+
+-- Consequence: react to it
+local function _handler(event_data)
+    if not xmath.chance(30) then return { code = ap_const.RESULT.CHANCE_NEXT } end
+    local squad = xobject.se(event_data.squad_id)
+    local base = xsmart.find_smart(squad.position, { filter = xsmart.is_base })
+    xsquad.control_squad(squad, base, true)
+    return { code = ap_const.RESULT.OK_STOP }
+end
+
+function on_game_start()
+    for i = 1, #ap_const.RADIANT_CALLBACKS do
+        ap_producer_reactive.register("cause:my_event",
+            { callback = ap_const.RADIANT_CALLBACKS[i] }, _predicate)
+    end
+    ap_consumer.register("consequence:my_reaction",
+        { event = "cause:my_event", priority = 20 }, _handler)
+end</code></pre>
+
+<h3>Level 3: Deep integration (coordinate first)</h3>
+<p>If you need access to AP's tracker, chase system, territory conquest, or other internal systems -- reach out via the <a href="https://github.com/damiansirbu-stalker">GitHub page</a>. These APIs are not yet stable or documented for external use. The plan is to stabilize them as proper public APIs based on what mod authors actually need.</p>
+</section>
+
+<!-- VISION -->
+<section id="vision">
+<h2>Architecture</h2>
+
+<h3>Problem</h3>
+<p>Most alife mods for Anomaly hook engine callbacks independently, iterate over squads on a timer, implement their own throttling, check squad validity in their own way, and set engine fields directly. Each mod operates as a silo with no awareness of other mods controlling the same squads.</p>
+
+<h3>Design</h3>
+<p>xlibs and AlifePlus are designed as a shared alife layer that mods register to rather than build around.</p>
+
+<ul>
+  <li><strong>xlibs provides invariants:</strong> event bus (publish/subscribe), squad safety (protection checks, scripting, release), smart terrain queries, entity resolution, and a squad ownership protocol (claim/release with TTL, one owner at a time, framework-enforced lifecycle)</li>
+  <li><strong>AlifePlus provides the pipeline:</strong> a radiant callback dispatcher with rate limiting, a unified protection stack, cause/consequence routing via the event bus, and lifecycle management (scripting, arrival, cooldown, cleanup)</li>
+  <li><strong>Mods register domain logic:</strong> a predicate and a handler. The framework handles the rest.</li>
+</ul>
+
+<h3>What the framework provides</h3>
+<p>Mods that register with the pipeline get these facilities without implementing them:</p>
+<table>
+  <tr><th>Facility</th><th>What it does</th></tr>
+  <tr><td>Bresenham rate limiter</td><td>Integer-only ratio gate based on the Bresenham line algorithm. Distributes callback budget fairly across causes with zero floating-point arithmetic and no timer dependencies.</td></tr>
+  <tr><td>TTL bucket collections</td><td>Time-bounded data structures with automatic expiry. Used for cooldowns, claim lifetimes, and deferred cleanup.</td></tr>
+  <tr><td>Deferred queues</td><td>Expensive or unsafe operations are batched and flushed outside the callback, keeping the tick lightweight.</td></tr>
+  <tr><td>Protection stack</td><td>Unified squad safety checks applied everywhere: the pipeline, squad search functions, and scripting calls all use the same protection layer.</td></tr>
+  <tr><td>Ownership protocol</td><td>Claim/release with TTL. One owner at a time. Framework auto-releases expired claims.</td></tr>
+  <tr><td>Tracing</td><td>Hierarchical trace context flows through the entire pipeline. Every gate decision, squad action, and result is recorded.</td></tr>
+  <tr><td>Logging</td><td>Structured file logging with buffered writes. Per-module log files, configurable verbosity.</td></tr>
+  <tr><td>Performance monitoring</td><td>Wall-clock and game-time profiling per cause, per consequence, per gate. Identifies bottlenecks without external tools.</td></tr>
+</table>
+
+<h3>Pipeline</h3>
+<p>Every squad event passes through the same sequence of gates. Each gate either passes the event forward or rejects it.</p>
+
+<div class="pipeline">
+  <div class="pipe-node pipe-entry"><strong>Registered callback</strong><small>any engine callback registered with the dispatcher</small></div>
+  <div class="pipe-arrow"></div>
+  <div class="pipe-node pipe-gate"><strong>Rate limiter</strong><small>per-cause budget, Bresenham ratio gate</small><span class="pipe-reject">budget exceeded: skip</span></div>
+  <div class="pipe-arrow"></div>
+  <div class="pipe-node pipe-gate"><strong>Protection stack</strong><small>permanent squad? active role? task target? owned by another mod?</small><span class="pipe-reject">protected: skip</span></div>
+  <div class="pipe-arrow"></div>
+  <div class="pipe-node pipe-gate"><strong>Cause predicate</strong><small>mod-registered condition (is this event interesting?)</small><span class="pipe-reject">condition not met: skip</span></div>
+  <div class="pipe-arrow"></div>
+  <div class="pipe-node pipe-action"><strong>xbus publish</strong><small>cause event dispatched to all subscribers</small></div>
+  <div class="pipe-arrow"></div>
+  <div class="pipe-node pipe-gate"><strong>Consequence gates</strong><small>enabled? chance roll? data valid?</small><span class="pipe-reject">gate failed: next handler</span></div>
+  <div class="pipe-arrow"></div>
+  <div class="pipe-node pipe-action"><strong>Handler</strong><small>find squads, claim ownership, script to target, send PDA</small></div>
+</div>
+
+<h3>Integration examples</h3>
+<table>
+  <tr><th>Mod</th><th>As AP plugin</th></tr>
+  <tr><td>Warfare</td><td>Base-capture and patrol as AP causes/consequences. Squad ownership via framework claim/release.</td></tr>
+  <tr><td>Semi Radiant AI</td><td>Patrols as radiant causes with arrival-based release.</td></tr>
+  <tr><td>Guards Spawner</td><td>Guard-return as cause. Long-TTL ownership claim with auto-renew.</td></tr>
+  <tr><td>Night Mutants</td><td>Spawn/despawn as causes with time-of-day conditions.</td></tr>
+  <tr><td>Bounty Squads Extended</td><td>Bounty as consequence using the chase template.</td></tr>
+  <tr><td>Faction Relations</td><td>Pure xbus subscriber. Listens to cause events, adjusts faction goodwill.</td></tr>
+  <tr><td>Mugging Squads</td><td>Loot detection as reactive cause, hostile response as consequence.</td></tr>
+</table>
+
+<h3>Planned</h3>
+<ul>
+  <li><strong>Cause/consequence templates:</strong> reusable patterns (respond, chase, flee, patrol, guard) that mods instantiate with their own parameters instead of reimplementing squad scripting.</li>
+  <li><strong>xbus expansion:</strong> typed events with schemas, priority subscribers, event namespaces.</li>
+  <li><strong>Plugin SDK:</strong> documentation and a minimal example mod (~50 lines) showing how to register one cause and one consequence.</li>
+</ul>
+
+<div class="callout key">
+<strong>Open invitation.</strong> If you maintain an alife mod and want to integrate, reach out. The goal is to establish proper APIs based on what mod authors actually need.<br>
+Discord: <strong>damian_sirbu</strong> | ModDB: <strong>damian_sirbu</strong> | Email: <strong>dami.sirbu@gmail.com</strong>
+</div>
+</section>
+
+<footer>
+  <p>
+    xlibs: <a href="https://github.com/damiansirbu-stalker/xlibs">GitHub</a> &middot; <a href="https://www.moddb.com/mods/stalker-anomaly/addons/xlibs-1001">ModDB</a> &middot;
+    AlifePlus: <a href="https://github.com/damiansirbu-stalker/AlifePlus">GitHub</a> &middot; <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-v1-0-01">ModDB</a> &middot;
+    License: <a href="https://github.com/damiansirbu-stalker/AlifePlus/blob/main/LICENSE">PolyForm Perimeter</a> &middot;
+    <a href="https://www.moddb.com/members/damian-sirbu/addons">All mods</a>
+  </p>
+</footer>
+
+</div><!-- .wrap -->
+</div><!-- .page -->
+<script>
+document.querySelectorAll('h2[id], h3[id]').forEach(function(h) {
+  var a = document.createElement('a');
+  a.className = 'anchor';
+  a.href = '#' + h.id;
+  a.textContent = '#';
+  h.appendChild(a);
+});
+</script>
+</body>
+</html>

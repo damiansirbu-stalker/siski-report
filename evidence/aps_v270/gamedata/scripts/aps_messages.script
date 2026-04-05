@@ -1,0 +1,134 @@
+--- aps_messages: PDA message templates for AlifePlus Extended
+
+local xmath_sample = xmath.sample
+
+local _templates = {
+    --- Wealthy Rob
+    text_pda_consequence_wealthy_rob = {
+        "Saw some well-equipped stalkers near {location}. Bandits are already circling.",
+        "Word is someone loaded with gear was spotted near {location}. Trouble incoming.",
+        "A stalker with serious hardware passed through {location}. The outlaws noticed.",
+        "Heads up, some rich-looking types near {location} got the bandits excited.",
+        "Someone flashing expensive kit near {location}. The wolves smell blood.",
+    },
+    text_pda_consequence_wealthy_rob_lost = {
+        "The bandits lost track of their target. Slippery one.",
+        "Target vanished. The outlaws are heading back empty-handed.",
+        "No luck for the robbers. The mark got away.",
+    },
+    text_pda_consequence_wealthy_rob_found = {
+        "The bandits caught up with their target. This won't end well.",
+        "Found the mark. Weapons hot.",
+        "Target located. The ambush is set.",
+    },
+    --- Wealthy Rob Cross-Level Rumor
+    text_pda_consequence_wealthy_rob_rumor = {
+        "Word is spreading on the radio. Someone loaded with gear near {location}. Bandits from other regions are mobilizing.",
+        "Overheard chatter: outlaws across the Zone heard about a rich mark near {location}. They're on their way.",
+        "A bandit frequency just went crazy. Someone spotted serious hardware near {location}. Groups from other maps are heading there now.",
+        "Radio intercept: 'Big score near {location}. Get the boys, we're heading out.' Multiple groups converging.",
+        "The grapevine says someone flashing expensive kit was seen near {location}. Every outlaw in the Zone wants a piece.",
+    },
+    --- Wealthy Ambush
+    text_pda_consequence_wealthy_ambush = {
+        "Suspicious activity near {location}. Someone might be setting up an ambush.",
+        "Heard some bandits talking about a score near {location}. Watch your back.",
+        "There's been movement near {location}. Could be an ambush.",
+    },
+    --- Vendetta
+    text_pda_consequence_vendetta = {
+        "The {faction} have had enough. They are sending squads against {enemy} positions.",
+        "Tensions boiling over. {faction} retaliating against {enemy}.",
+        "Radio chatter says {faction} launched a strike against {enemy}. Blood in the air.",
+        "{faction} forces mobilizing. {enemy} pushed them too far.",
+    },
+    --- Predator Alert
+    text_pda_consequence_predator_alert = {
+        "Dangerous mutants spotted near {location}. {predator_count} confirmed. Stay alert.",
+        "Multiple predators hunting near {location}. Stalkers are pulling back.",
+        "Warning: aggressive mutant pack near {location}. Not safe for solo travelers.",
+        "The Zone is restless near {location}. Predators are on the move.",
+    },
+    --- Danger Zone warnings
+    text_pda_danger_zone = {
+        "Stalkers report heavy mutant activity near {location}. Avoid the area.",
+        "The area around {location} is crawling with predators. Watch your step.",
+        "Multiple mutant packs sighted near {location}. Not safe.",
+    },
+    --- Weather-driven messages
+    text_pda_weather_night_warning = {
+        "Night is falling. The bandits love the dark. Watch your valuables.",
+        "Darkness brings out the worst in the Zone. Stay alert.",
+    },
+    text_pda_weather_emission_predator = {
+        "Emission incoming. The mutants are agitated and hunting.",
+        "Take cover. The predators are going crazy in this emission.",
+    },
+    --- Bounty System
+    text_pda_bounty_placed = {
+        "Intel: the {faction} faction has posted a {amount} RU bounty on a stalker matching your description.",
+        "Intercepted transmission: {faction} command is offering {amount} RU for your head.",
+        "Word on the wire: someone in the {faction} faction put up {amount} RU for whoever takes you down.",
+        "A {faction} radio frequency just lit up. They're offering {amount} RU for a hit on someone matching your profile.",
+    },
+    text_pda_bounty_hunter_dispatched = {
+        "A squad just accepted the {faction} contract. {amount} RU is a lot of motivation.",
+        "Overheard chatter: hunters are gearing up. The {faction} bounty of {amount} RU found a taker.",
+        "Someone just took the {amount} RU contract from the {faction}. They're on their way.",
+        "A merc frequency went active. Sounds like they accepted the {faction} hit. {amount} RU on the line.",
+    },
+    text_pda_bounty_escalated = {
+        "Your bounty from the {faction} just went up. Killing their hunters only made them angrier.",
+        "Bad news: the {faction} increased their bounty after you took out their last squad. Now at {amount} RU.",
+        "The {faction} are doubling down. Your bounty keeps climbing. Currently at {amount} RU.",
+    },
+    text_pda_bounty_expired = {
+        "Word is the {faction} quietly dropped their bounty on you. Guess they moved on.",
+        "The {faction} bounty has expired. Either they ran out of money or they found bigger problems.",
+        "Good news: the {faction} stopped offering money for your head. For now.",
+    },
+    text_pda_bounty_npc = {
+        "Zone gossip: the {placing} put a {amount} RU bounty on {target} operatives. Things are heating up.",
+        "Overheard on a neutral frequency: {placing} are paying {amount} RU for anyone who takes out {target} squads.",
+        "The {placing} and {target} feud is escalating. {amount} RU bounty posted on the wire.",
+        "Radio chatter: {placing} command authorized a {amount} RU contract against {target}. Mercs are circling.",
+    },
+    text_pda_bounty_npc_hunter_dispatched = {
+        "A merc squad just took a contract against the {target}. The {placing} are paying {amount} RU.",
+        "Hunters are moving against {target} positions. {placing} bounty of {amount} RU found takers.",
+        "Someone accepted the {placing} hit on {target} operatives. {amount} RU on the line.",
+    },
+    text_pda_bounty_available = {
+        "There's an open contract on {target} squads worth {amount} RU. Posted by the {placing}. Could be easy money.",
+        "The {placing} are paying {amount} RU per {target} kill. If you're in the area, might be worth your time.",
+        "Open bounty: {amount} RU from {placing} for {target} scalps. No questions asked.",
+    },
+    --- Boss System
+    text_pda_boss_promoted = {
+        "Word on the wire: a {faction} called '{nickname}' near {location} is making a name for themselves. Promoted to {tier}. Don't underestimate them.",
+        "Heads up: '{nickname}' of the {faction} has risen to {tier} status near {location}. They've earned their reputation the hard way.",
+        "Zone legend in the making: '{nickname}' ({faction}) near {location}. Now a {tier}. Survivors say they're the real deal.",
+        "A {faction} known as '{nickname}' has become a {tier} near {location}. Armed to the teeth and experienced. Approach with caution.",
+    },
+    text_pda_boss_killed = {
+        "The legendary {faction} '{nickname}' has been taken down. The {tier} is no more. The Zone just got a little quieter.",
+        "'{nickname}' the {tier} ({faction}) is dead. Someone finally got the better of them. Their gear is probably worth a fortune.",
+        "Zone news: '{nickname}' ({faction} {tier}) confirmed killed. Their reign is over.",
+    },
+    text_pda_boss_tier_up = {
+        "'{nickname}' of the {faction} just leveled up to {tier}. They keep getting stronger. Seriously dangerous now.",
+        "Word is '{nickname}' ({faction}) earned {tier} rank. They've survived everything the Zone threw at them.",
+    },
+}
+
+--- Get a random message for a key, with variable substitution
+--- @param key string Template key
+--- @param params table|nil { name, location, ... }
+--- @return string|nil
+function get(key, params)
+    local pool = _templates[key]
+    if not pool or #pool == 0 then return nil end
+    local template = xmath_sample(pool)
+    if not params then return template end
+    return xstring.interpolate(template, params)
+end

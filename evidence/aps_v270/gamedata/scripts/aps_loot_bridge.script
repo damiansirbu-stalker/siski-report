@@ -1,0 +1,116 @@
+--- aps_loot_bridge: Massacre -> SISKI loot integration
+---
+--- When AP fires cause:massacre (multiple deaths at a smart terrain),
+--- this module notifies SISKI's loot system that there are corpses to process.
+--- SISKI already has siski_loot with corpse detection and item collection.
+--- We point it at the massacre coordinates so NPCs converge to loot bodies.
+---
+--- Result: after a big firefight, a second wave of NPCs arrives to scavenge,
+--- creating cascading activity at battle sites. This chains naturally with
+--- AP's massacre_scavenge consequence (which sends scavenger squads) —
+--- AP sends the squads, SISKI makes them actually pick up the items.
+---
+--- Also subscribes to cause:squadkill for smaller-scale looting.
+
+local type, tostring, pcall, ipairs = type, tostring, pcall, ipairs
+local RegisterScriptCallback = RegisterScriptCallback
+
+local CALLBACK = ap_const.CALLBACK
+local LOOT_EVENT = _aps_const.LOOT_BRIDGE_EVENT
+
+local _siski_loot = nil
+
+-- ============================================================================
+-- SISKI loot system detection
+-- ============================================================================
+
+local function _detect_loot_system()
+    local s = _G.siski
+    if not s then return nil end
+    if s.loot and type(s.loot) == "table" then
+        return s.loot
+    end
+    return nil
+end
+
+-- ============================================================================
+-- Publish loot site to SISKI
+-- ============================================================================
+
+--- Notify SISKI that there are corpses at a location worth looting
+--- @param position vector World position of the battle
+--- @param level_id number Level ID where it happened
+--- @param death_count number How many died (affects priority)
+--- @param source string What caused this ("massacre", "squadkill", "basekill")
+local function _publish_loot_site(position, level_id, death_count, source)
+    if not _G.siski or not _G.siski.bus then return end
+
+    --- Publish to SISKI bus so loot subscribers can react
+    local ok, err = pcall(_G.siski.bus.publish, LOOT_EVENT, {
+        event = LOOT_EVENT,
+        position = position,
+        level_id = level_id,
+        death_count = death_count or 1,
+        source = source,
+    })
+
+    if ok then
+        ap_debug.debug("[APS.LOOT_BRIDGE] published loot_site: source=%s deaths=%d level=%s",
+            source, death_count or 1, tostring(level_id))
+    end
+end
+
+-- ============================================================================
+-- AP event subscribers
+-- ============================================================================
+
+local function _on_massacre(event_data)
+    if type(event_data) ~= "table" then return end
+    local position = event_data.position
+    local level_id = event_data.level_id
+    if not position or not level_id then return end
+
+    local death_count = event_data.total_deaths or event_data.death_count or 3
+
+    --- Small delay: let AP's scavenge/investigate consequences fire first
+    _publish_loot_site(position, level_id, death_count, "massacre")
+end
+
+local function _on_squadkill(event_data)
+    if type(event_data) ~= "table" then return end
+    local position = event_data.position
+    local level_id = event_data.level_id
+    if not position or not level_id then return end
+
+    _publish_loot_site(position, level_id, 1, "squadkill")
+end
+
+local function _on_basekill(event_data)
+    if type(event_data) ~= "table" then return end
+    local position = event_data.position
+    local level_id = event_data.level_id
+    if not position or not level_id then return end
+
+    local death_count = event_data.death_count or 2
+    _publish_loot_site(position, level_id, death_count, "basekill")
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+local function _subscribe()
+    _siski_loot = _detect_loot_system()
+
+    xbus.subscribe(ap_const.CAUSE.MASSACRE, _on_massacre, "aps_loot_massacre")
+    xbus.subscribe(ap_const.CAUSE.SQUADKILL, _on_squadkill, "aps_loot_squadkill")
+    xbus.subscribe(ap_const.CAUSE.BASEKILL, _on_basekill, "aps_loot_basekill")
+
+    _aps_log.info("[APS.LOOT_BRIDGE] Subscribed to massacre/squadkill/basekill (siski_loot=%s)",
+        _siski_loot and "detected" or "not_found")
+end
+
+function on_game_start()
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, _subscribe)
+    _aps_log.info("[APS.LOOT_BRIDGE] Initialized")
+end

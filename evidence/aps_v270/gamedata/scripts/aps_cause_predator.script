@@ -1,0 +1,74 @@
+--- aps_cause_predator: Detects predator mutant presence near stalker squads
+--- Uses AP's radiant callbacks to check for nearby predator mutants.
+--- When SISKI is available, enriches with mutant hunt phase data.
+local CAUSE = _aps_const.CAUSE
+local CALLBACK = ap_const.CALLBACK
+local RESULT = ap_const.RESULT
+local REASON = ap_const.REASON
+
+local cfg
+local os_clock = os.clock
+
+local _eval_at = {}
+local PREDATOR_EVAL_COOLDOWN = 180
+
+local function _on_radiant(trace, squad)
+    if not cfg.cause_predator_enabled then return nil end
+    if not squad then return nil end
+
+    --- Only stalker squads can be prey
+    local community = xcreature.community(squad.id)
+    if not community or not ap_data.community_stalker[community] then return nil end
+
+    --- Cooldown per smart vicinity
+    local now = os_clock()
+    if _eval_at[squad.id] and now - _eval_at[squad.id] < PREDATOR_EVAL_COOLDOWN then
+        return nil
+    end
+
+    local level_id = xlevel.get_level_id(squad)
+    if not level_id then return nil end
+
+    --- Find nearby predator squads
+    local predators = xsquad.find_squads(squad.position, {
+        factions = ap_data.community_predator,
+        max_distance = cfg.cause_predator_detect_radius,
+        level_id = level_id,
+        max_count = 3,
+    })
+    if not predators or #predators == 0 then return nil end
+
+    _eval_at[squad.id] = now
+
+    --- Count predator threat level
+    local threat_level = #predators
+    local predator_ids = {}
+    for i = 1, #predators do
+        predator_ids[i] = predators[i].id
+        --- Elites are extra threatening
+        if ap_alife_tracker.is_elite(predators[i]:commander_id()) then
+            threat_level = threat_level + 2
+        end
+    end
+
+    return {
+        cause = CAUSE.PREDATOR,
+        squad_id = squad.id,
+        prey_community = community,
+        predator_count = #predators,
+        predator_ids = predator_ids,
+        threat_level = threat_level,
+        position = squad.position,
+        level_id = level_id,
+    }
+end
+
+function on_game_start()
+    cfg = aps_mcm.cfg
+    for i = 1, #ap_const.RADIANT_CALLBACKS do
+        ap_producer_reactive.register(CAUSE.PREDATOR, {
+            callback = ap_const.RADIANT_CALLBACKS[i],
+        }, _on_radiant)
+    end
+    _aps_log.info("[CAUSE.PREDATOR] Initialized (radiant)")
+end

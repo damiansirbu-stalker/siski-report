@@ -1,0 +1,170 @@
+--- aps_personality: NPC personality profiles
+---
+--- Each squad gets a randomly generated personality at first encounter:
+---   aggression (0.0-1.0) - willingness to fight vs flee
+---   greed (0.0-1.0) - how strongly they pursue wealth targets
+---   caution (0.0-1.0) - how quickly they react to danger
+---   loyalty (0.0-1.0) - how strongly they respond to faction events
+---
+--- Personalities modify every APS decision:
+---   Robbery: greed multiplies the chance to pursue wealthy targets
+---   Ambush: caution affects whether they set traps vs direct assault
+---   Predator flee: caution inverted = bravery, low caution = stand and fight
+---   Vendetta: loyalty multiplies how strongly they respond to faction grudges
+---   Risk eval: aggression vs caution determines fight-or-flight
+---
+--- Traits are faction-biased:
+---   Bandits: high greed, low loyalty
+---   Military: high loyalty, moderate caution
+---   Freedom: low caution, moderate aggression
+---   Monolith: max aggression, max loyalty, zero caution
+---
+--- Persisted across saves in m_data.
+
+local type, pairs, tostring, math_random, math_min, math_max = type, pairs, tostring, math.random, math.min, math.max
+local RegisterScriptCallback = RegisterScriptCallback
+
+local CALLBACK = ap_const.CALLBACK
+
+local _profiles = {}
+local _faction_bias = {
+    bandit    = { aggression = 0.5, greed = 0.8, caution = 0.4, loyalty = 0.2 },
+    renegade  = { aggression = 0.4, greed = 0.7, caution = 0.3, loyalty = 0.1 },
+    killer    = { aggression = 0.7, greed = 0.6, caution = 0.6, loyalty = 0.5 },
+    army      = { aggression = 0.5, greed = 0.2, caution = 0.6, loyalty = 0.8 },
+    dolg      = { aggression = 0.6, greed = 0.2, caution = 0.5, loyalty = 0.9 },
+    freedom   = { aggression = 0.5, greed = 0.3, caution = 0.3, loyalty = 0.6 },
+    stalker   = { aggression = 0.4, greed = 0.4, caution = 0.5, loyalty = 0.4 },
+    ecolog    = { aggression = 0.2, greed = 0.3, caution = 0.8, loyalty = 0.5 },
+    csky      = { aggression = 0.5, greed = 0.3, caution = 0.5, loyalty = 0.7 },
+    monolith  = { aggression = 0.9, greed = 0.1, caution = 0.1, loyalty = 1.0 },
+    greh      = { aggression = 0.7, greed = 0.5, caution = 0.2, loyalty = 0.8 },
+    isg       = { aggression = 0.6, greed = 0.5, caution = 0.5, loyalty = 0.6 },
+}
+local _default_bias = { aggression = 0.5, greed = 0.5, caution = 0.5, loyalty = 0.5 }
+
+--- Random variation around a bias value (+/- 0.25, clamped 0-1)
+local function _vary(base)
+    local v = base + (math_random() - 0.5) * 0.5
+    return math_min(1.0, math_max(0.0, v))
+end
+
+-- ============================================================================
+-- Public API
+-- ============================================================================
+
+--- Get personality for a squad (generates on first access)
+--- @param squad_id number Squad entity ID
+--- @param faction string|nil Faction for bias (auto-detected if nil)
+--- @return table { aggression, greed, caution, loyalty }
+function get(squad_id, faction)
+    if not squad_id then return _default_bias end
+    if _profiles[squad_id] then return _profiles[squad_id] end
+
+    --- Auto-detect faction
+    if not faction then
+        local se = xobject.se(squad_id)
+        if se then faction = xcreature.community(se.id) end
+    end
+
+    --- Generate from faction bias + random variation
+    local bias = _faction_bias[faction] or _default_bias
+    local profile = {
+        aggression = _vary(bias.aggression),
+        greed = _vary(bias.greed),
+        caution = _vary(bias.caution),
+        loyalty = _vary(bias.loyalty),
+    }
+    _profiles[squad_id] = profile
+
+    _aps_log.info("[PERSONALITY] generated: sq=%d faction=%s aggr=%.2f greed=%.2f caut=%.2f loyal=%.2f",
+        squad_id, faction or "?", profile.aggression, profile.greed, profile.caution, profile.loyalty)
+
+    return profile
+end
+
+--- Get a specific trait value (0.0-1.0)
+--- @param squad_id number
+--- @param trait string "aggression"|"greed"|"caution"|"loyalty"
+--- @return number 0.0-1.0
+function trait(squad_id, trait_name)
+    local p = get(squad_id)
+    return p[trait_name] or 0.5
+end
+
+--- Modify a consequence chance by a personality trait
+--- trait_value 0.0 = halve the chance, 0.5 = unchanged, 1.0 = double it
+--- @param base_chance number Original chance (0-100)
+--- @param squad_id number Squad to check
+--- @param trait_name string Which trait modifies this
+--- @return number Adjusted chance (0-100)
+function modify_chance(base_chance, squad_id, trait_name)
+    local t = trait(squad_id, trait_name)
+    local multiplier = 0.5 + t
+    return math_min(100, math.floor(base_chance * multiplier + 0.5))
+end
+
+--- Cleanup: remove profiles for dead/despawned squads
+local function _cleanup()
+    local removed = 0
+    for squad_id in pairs(_profiles) do
+        if not xobject.se(squad_id) then
+            _profiles[squad_id] = nil
+            removed = removed + 1
+        end
+    end
+    if removed > 0 then
+        _aps_log.info("[PERSONALITY] cleanup: removed %d stale profiles (%d remaining)",
+            removed, xtable.count(_profiles))
+    end
+end
+
+-- ============================================================================
+-- Save/Load
+-- ============================================================================
+
+local function _on_save(m_data)
+    --- Only save profiles with real data (skip default)
+    local save_data = {}
+    local count = 0
+    for squad_id, profile in pairs(_profiles) do
+        save_data[squad_id] = profile
+        count = count + 1
+    end
+    m_data.aps_personality = { profiles = save_data }
+    _aps_log.info("[PERSONALITY] saved %d profiles", count)
+end
+
+local function _on_load(m_data)
+    _profiles = {}
+    local saved = m_data.aps_personality
+    if saved and saved.profiles then
+        for squad_id, profile in pairs(saved.profiles) do
+            if type(profile) == "table" and profile.aggression then
+                _profiles[squad_id] = profile
+            end
+        end
+    end
+    _aps_log.info("[PERSONALITY] loaded %d profiles", xtable.count(_profiles))
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+function on_game_start()
+    _profiles = {}
+    RegisterScriptCallback(CALLBACK.SAVE_STATE, _on_save)
+    RegisterScriptCallback(CALLBACK.LOAD_STATE, _on_load)
+
+    --- Periodic cleanup every 5 minutes
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, function()
+        CreateTimeEvent("aps_personality", "cleanup", 300, function()
+            ResetTimeEvent("aps_personality", "cleanup", 300)
+            _cleanup()
+        end)
+    end)
+
+    _aps_log.info("[APS.PERSONALITY] Initialized")
+end
+if printf then printf('[APS] aps_personality loaded') end

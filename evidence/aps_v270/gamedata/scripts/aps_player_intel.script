@@ -1,0 +1,260 @@
+--- aps_player_intel: Adaptive player behavior tracking
+---
+--- Tracks what the player does over time. After enough data, outlaws
+--- "learn" the player's patterns and adapt their behavior:
+---
+--- WHAT'S TRACKED:
+---   - Levels visited (frequency + recency)
+---   - Time-of-day activity (when does the player travel vs camp)
+---   - Combat effectiveness (kill ratio, fights won/lost)
+---   - Wealth trajectory (getting richer or poorer over time)
+---   - Routes (which level transitions the player uses most)
+---
+--- HOW IT'S USED:
+---   - Ambush placement: outlaws prefer smarts on the player's common routes
+---   - Robbery timing: outlaws attack during hours the player is usually traveling
+---   - Squad sizing: if player has high kill ratio, send MORE squads
+---   - Risk evaluation: NPCs know if the player is dangerous and adjust
+---
+--- Persisted across saves. Builds up over multiple sessions.
+
+local type, pairs, tostring, math_floor, math_min = type, pairs, tostring, math.floor, math.min
+local RegisterScriptCallback = RegisterScriptCallback
+local os_clock = os.clock
+
+local CALLBACK = ap_const.CALLBACK
+
+local _intel = {
+    --- Level visit frequency: { [level_id] = { visits, last_visit_at } }
+    level_visits = {},
+    --- Time-of-day activity: { [hour] = count }
+    hourly_activity = {},
+    --- Combat stats
+    kills = 0,
+    deaths = 0,
+    fights_won = 0,
+    fights_lost = 0,
+    --- Wealth snapshots: { { time, score } }
+    wealth_history = {},
+    --- Level transition routes: { [from_level .. ">" .. to_level] = count }
+    routes = {},
+    --- Session count
+    sessions = 0,
+}
+
+local _last_level_id = nil
+local _last_activity_hour = nil
+local _last_wealth_snapshot = 0
+local WEALTH_SNAPSHOT_INTERVAL = 600
+
+-- ============================================================================
+-- Public API
+-- ============================================================================
+
+--- Get the player's most visited levels (sorted by frequency)
+--- @param max number Max results
+--- @return table Array of { level_id, visits }
+function get_frequent_levels(max)
+    local sorted = {}
+    for level_id, data in pairs(_intel.level_visits) do
+        sorted[#sorted + 1] = { level_id = level_id, visits = data.visits }
+    end
+    table.sort(sorted, function(a, b) return a.visits > b.visits end)
+    local result = {}
+    for i = 1, math_min(max or 5, #sorted) do
+        result[i] = sorted[i]
+    end
+    return result
+end
+
+--- Get the player's most active hours (when they travel/fight)
+--- @return table Array of { hour, count } sorted by count desc
+function get_active_hours()
+    local sorted = {}
+    for hour, count in pairs(_intel.hourly_activity) do
+        sorted[#sorted + 1] = { hour = hour, count = count }
+    end
+    table.sort(sorted, function(a, b) return a.count > b.count end)
+    return sorted
+end
+
+--- Is the player currently in their "active hours"?
+--- @return boolean true if current game hour is in top 6 active hours
+function is_player_active_now()
+    local hours = get_active_hours()
+    if #hours < 6 then return true end
+    local current = level and level.get_time_hours and level.get_time_hours()
+    if not current then return true end
+    for i = 1, 6 do
+        if hours[i].hour == current then return true end
+    end
+    return false
+end
+
+--- Get player combat threat level (0.0 = harmless, 1.0+ = deadly)
+--- Based on kill ratio and total kills
+--- @return number threat 0.0-2.0
+function get_player_threat()
+    local total_fights = _intel.fights_won + _intel.fights_lost
+    if total_fights < 3 then return 0.5 end
+    local win_rate = _intel.fights_won / total_fights
+    local kill_factor = math_min(1.0, _intel.kills / 50)
+    return (win_rate * 0.7 + kill_factor * 0.3) * 2.0
+end
+
+--- Get the player's most used routes
+--- @param max number Max results
+--- @return table Array of { route, count }
+function get_common_routes(max)
+    local sorted = {}
+    for route, count in pairs(_intel.routes) do
+        sorted[#sorted + 1] = { route = route, count = count }
+    end
+    table.sort(sorted, function(a, b) return a.count > b.count end)
+    local result = {}
+    for i = 1, math_min(max or 5, #sorted) do
+        result[i] = sorted[i]
+    end
+    return result
+end
+
+--- Is the player getting richer over time?
+--- @return number trend (-1.0 = getting poorer, 0 = stable, 1.0 = getting richer)
+function get_wealth_trend()
+    local h = _intel.wealth_history
+    if #h < 3 then return 0 end
+    local recent_avg = (h[#h].score + h[#h-1].score) / 2
+    local older_avg = (h[1].score + h[2].score) / 2
+    if older_avg == 0 then return 0 end
+    local change = (recent_avg - older_avg) / older_avg
+    return math_min(1.0, math.max(-1.0, change))
+end
+
+--- How many sessions of data do we have?
+--- @return number
+function get_data_maturity()
+    return _intel.sessions
+end
+
+-- ============================================================================
+-- Data collection (called from callbacks)
+-- ============================================================================
+
+--- Track level visit
+local function _track_level()
+    local level_id = xlevel.get_actor_level_id()
+    if not level_id then return end
+
+    --- Track route (level transition)
+    if _last_level_id and _last_level_id ~= level_id then
+        local route = tostring(_last_level_id) .. ">" .. tostring(level_id)
+        _intel.routes[route] = (_intel.routes[route] or 0) + 1
+        _aps_log.info("[PLAYER_INTEL] route: %s (count=%d)", route, _intel.routes[route])
+    end
+    _last_level_id = level_id
+
+    --- Track visit frequency
+    if not _intel.level_visits[level_id] then
+        _intel.level_visits[level_id] = { visits = 0, last_visit_at = 0 }
+    end
+    local entry = _intel.level_visits[level_id]
+    entry.visits = entry.visits + 1
+    entry.last_visit_at = os_clock()
+end
+
+--- Track hourly activity
+local function _track_activity()
+    local hour = level and level.get_time_hours and level.get_time_hours()
+    if not hour then return end
+    if hour == _last_activity_hour then return end
+    _last_activity_hour = hour
+    _intel.hourly_activity[hour] = (_intel.hourly_activity[hour] or 0) + 1
+end
+
+--- Track combat (subscribe to squad_on_npc_death)
+local function _on_death(event_data)
+    if type(event_data) ~= "table" then return end
+    --- If player killed an NPC
+    if event_data.killer_is_player or event_data.taker_is_player then
+        _intel.kills = _intel.kills + 1
+        _intel.fights_won = _intel.fights_won + 1
+    end
+end
+
+--- Periodic wealth snapshot
+local function _snapshot_wealth()
+    local now = os_clock()
+    if now - _last_wealth_snapshot < WEALTH_SNAPSHOT_INTERVAL then return end
+    _last_wealth_snapshot = now
+
+    if not aps_wealth or not aps_wealth.score_actor then return end
+    local score = aps_wealth.score_actor()
+    if score <= 0 then return end
+
+    local h = _intel.wealth_history
+    h[#h + 1] = { time = now, score = score }
+    --- Keep only last 20 snapshots
+    while #h > 20 do table.remove(h, 1) end
+end
+
+--- Periodic collection tick
+local function _collect()
+    ResetTimeEvent("aps_player_intel", "collect", 60)
+    _track_level()
+    _track_activity()
+    _snapshot_wealth()
+end
+
+-- ============================================================================
+-- Save/Load
+-- ============================================================================
+
+local function _on_save(m_data)
+    _intel.sessions = _intel.sessions + 1
+    m_data.aps_player_intel = _intel
+    _aps_log.info("[PLAYER_INTEL] saved: sessions=%d kills=%d routes=%d levels=%d",
+        _intel.sessions, _intel.kills, xtable.count(_intel.routes), xtable.count(_intel.level_visits))
+end
+
+local function _on_load(m_data)
+    local saved = m_data.aps_player_intel
+    if saved and type(saved) == "table" then
+        _intel = saved
+        --- Ensure all fields exist (migration)
+        _intel.level_visits = _intel.level_visits or {}
+        _intel.hourly_activity = _intel.hourly_activity or {}
+        _intel.kills = _intel.kills or 0
+        _intel.deaths = _intel.deaths or 0
+        _intel.fights_won = _intel.fights_won or 0
+        _intel.fights_lost = _intel.fights_lost or 0
+        _intel.wealth_history = _intel.wealth_history or {}
+        _intel.routes = _intel.routes or {}
+        _intel.sessions = _intel.sessions or 0
+    end
+    _aps_log.info("[PLAYER_INTEL] loaded: sessions=%d kills=%d", _intel.sessions, _intel.kills)
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+local function _on_first_update()
+    _track_level()
+    CreateTimeEvent("aps_player_intel", "collect", 60, _collect)
+
+    --- Subscribe to AP death events for combat tracking
+    if xbus and xbus.subscribe then
+        xbus.subscribe(ap_const.CAUSE.SQUADKILL, _on_death, "aps_player_intel_death")
+    end
+end
+
+function on_game_start()
+    _last_level_id = nil
+    _last_activity_hour = nil
+    _last_wealth_snapshot = 0
+    RegisterScriptCallback(CALLBACK.SAVE_STATE, _on_save)
+    RegisterScriptCallback(CALLBACK.LOAD_STATE, _on_load)
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, _on_first_update)
+    _aps_log.info("[APS.PLAYER_INTEL] Initialized")
+end
+if printf then printf('[APS] aps_player_intel loaded') end

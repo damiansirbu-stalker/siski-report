@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>APS v2.7.0: Technical Analysis</title>
+<style>
+:root {
+  --bg: #faf9f6;
+  --bg-card: #f0f0ee;
+  --bg-code: #ebebeb;
+  --border: #c8c3b6;
+  --fg: #2c2a25;
+  --fg-dim: #6e6960;
+  --blue: #0969da;
+  --green: #1a7f37;
+  --red: #cf222e;
+  --yellow: #9a6700;
+  --sand: #d4c5a0;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: Georgia, "Times New Roman", Times, serif;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--fg);
+  background: var(--bg);
+}
+.page { display: flex; max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+.sidebar {
+  width: 260px; min-width: 260px; padding: 40px 0 80px 0; margin-right: 32px;
+}
+.sidebar nav {
+  position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+  padding: 14px 16px; font-size: 13px;
+}
+.sidebar nav h2 { font-size: 13px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.sidebar nav ol { padding-left: 18px; margin-bottom: 0; }
+.sidebar nav li { margin-bottom: 4px; font-size: 13px; line-height: 1.5; }
+.sidebar nav a { color: var(--blue); text-decoration: none; }
+.sidebar nav a:hover { text-decoration: underline; }
+.wrap { max-width: 860px; flex: 1; min-width: 0; padding: 40px 0 80px; }
+header { margin-bottom: 32px; }
+header h1 { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+header p { color: var(--fg-dim); font-size: 14px; }
+section { margin-bottom: 40px; }
+h2 { font-size: 22px; font-weight: 700; padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+h3 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
+p { margin-bottom: 10px; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 13px; }
+th, td { padding: 6px 10px; border: 1px solid var(--border); text-align: left; }
+th { background: var(--bg-card); font-weight: 600; }
+tr:nth-child(even) td { background: var(--bg-card); }
+pre { background: var(--bg-code); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; overflow-x: auto; margin-bottom: 14px; font-size: 13px; line-height: 1.5; }
+code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+p code, li code, td code { background: var(--bg-code); padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border); }
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.compare-panel { background: var(--bg-code); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.compare-panel:has(.compare-label.src) { background: rgba(26,127,55,0.04); }
+.compare-panel:has(.compare-label.cpy) { background: rgba(207,34,46,0.05); }
+.compare-label { padding: 4px 12px; font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--border); }
+.compare-label.src { background: rgba(63,185,80,0.12); color: var(--green); }
+.compare-label.cpy { background: rgba(248,81,73,0.12); color: var(--red); }
+.compare-panel pre { border: none; border-radius: 0; margin: 0; background: transparent; }
+.callout { padding: 12px 16px; border-radius: 6px; margin-bottom: 14px; border-left: 3px solid; background: var(--bg-card); font-size: 14px; }
+.callout.note { border-color: var(--blue); }
+.callout.warn { border-color: var(--yellow); }
+.callout.key { border-color: var(--green); }
+ol, ul { padding-left: 20px; margin-bottom: 10px; }
+li { margin-bottom: 3px; }
+blockquote { border-left: 3px solid var(--border); padding: 6px 14px; margin-bottom: 10px; color: var(--fg-dim); background: var(--bg-card); border-radius: 0 6px 6px 0; font-size: 14px; }
+footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: 12px; }
+footer a { color: var(--blue); }
+@media (max-width: 960px) {
+  .page { flex-direction: column; padding: 0 16px; }
+  .sidebar { width: 100%; min-width: 0; margin-right: 0; padding: 20px 0 0 0; }
+  .sidebar nav { position: static; max-height: none; }
+  .wrap { padding: 20px 0 60px; }
+  .compare { grid-template-columns: 1fr; }
+}
+/* Lightbox */
+.thumb { cursor: pointer; transition: opacity 0.15s; }
+.thumb:hover { opacity: 0.85; }
+.lightbox {
+  display: none; position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.85); align-items: center; justify-content: center; cursor: pointer;
+}
+.lightbox.open { display: flex; }
+.lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 6px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+.topnav-wrap { position: sticky; top: 0; z-index: 100; background: var(--bg); border-bottom: 1px solid var(--border); }
+.topnav { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 12px 24px; font-size: 13px; font-weight: 500; max-width: 1180px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+.sidebar nav, table, .compare-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+.topnav a { color: var(--fg-dim); text-decoration: none; padding: 4px 6px; border-radius: 4px; transition: background 0.1s, color 0.1s; }
+.topnav a:hover { color: var(--blue); background: var(--bg-card); }
+.topnav a.active { color: var(--fg); border-bottom: 2px solid var(--sand); }
+.topnav .sep { width: 1px; height: 14px; background: var(--border); align-self: center; margin: 0 4px; }
+
+h2 .anchor, h3 .anchor { opacity: 0; margin-left: 6px; color: var(--fg-dim); text-decoration: none; font-size: 0.8em; transition: opacity 0.15s; }
+h2:hover .anchor, h3:hover .anchor { opacity: 0.6; }
+h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
+
+@media print {
+  .topnav-wrap, .sidebar, .lightbox { display: none !important; }
+  .page { display: block; padding: 0; }
+  .wrap { max-width: 100%; padding: 0; }
+  body { font-size: 12pt; line-height: 1.5; }
+  h2 { page-break-before: always; }
+  h2:first-of-type { page-break-before: avoid; }
+  pre { white-space: pre-wrap; word-wrap: break-word; font-size: 9pt; }
+  table { font-size: 9pt; }
+  .callout { border-left-width: 3px; }
+  a[href]::after { content: " (" attr(href) ")"; font-size: 8pt; color: #666; }
+  a[href^="#"]::after { content: ""; }
+  .compare, .mirror { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="topnav-wrap">
+<nav class="topnav">
+  <a href="index.html">Home</a>
+  <a href="guide.html">Usage Guide</a>
+  <a href="siski.html">SISKI Report</a>
+  <a href="nano.html">SISKI Nano</a>
+  <a href="aps.html" class="active">APS Analysis</a>
+  <a href="https://github.com/damiansirbu-stalker" style="margin-left:auto">GitHub</a>
+</nav>
+</div>
+<div class="page">
+
+<div class="sidebar">
+<nav>
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#mod">The Mod</a></li>
+    <li><a href="#authorship">Authorship Indicators</a></li>
+    <li><a href="#framework">Framework Pattern Matching</a></li>
+    <li><a href="#apis">Internal API Usage</a></li>
+    <li><a href="#yans">Design Language and ModDB Description</a></li>
+    <li><a href="#crash">Runtime Behavior</a></li>
+    <li><a href="#siski-dep">SISKI Dependency</a></li>
+    <li><a href="#features">Feature Set Cloning</a></li>
+    <li><a href="#license">License</a></li>
+  </ol>
+</nav>
+</div>
+
+<div class="wrap">
+
+<header>
+  <h1>AlifePlus SISKI Synergy (APS) v2.7.0: Technical Analysis</h1>
+  <p>Damian Sirbu, xlibs and AlifePlus developer &middot; 2026-04-05 &middot; Subject: APS by forTheMonolith</p>
+  <p style="font-size:12px;color:var(--fg-dim)">ModDB: <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-siski-synergy-aps-v270">AlifePlus SISKI Synergy v2.7.0</a></p>
+</header>
+
+<section id="overview">
+<h2>Overview</h2>
+
+<p>"AlifePlus SISKI Synergy" (APS) v2.7.0 appeared on <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-siski-synergy-aps-v270">ModDB</a> on April 4, 2026. 28 scripts, 6,112 lines of Lua. It depends on xlibs, AlifePlus, and <a href="siski.html">SISKI 0.9.5</a> (which is under a DMCA takedown). Uploaded by forTheMonolith &mdash; whether this is the same person as qkff99 (SISKI author) is unknown, but the patterns are the same: AI-generated code, deep access to AlifePlus internals, no development history, no license file.</p>
+
+<table>
+  <tr><th>Finding</th><th>Evidence</th><th>Section</th></tr>
+  <tr><td>AI-generated code</td><td>67 pcall wraps, hallucinated items, empty loops, mechanical uniformity in 28/28 files</td><td><a href="#authorship">&darr;</a></td></tr>
+  <tr><td>Internal conventions copied</td><td>Naming, handler structure, config keys, registration loops &mdash; all from <code>conventions.md</code></td><td><a href="#framework">&darr;</a></td></tr>
+  <tr><td>70+ undocumented API calls</td><td>Tracing, state manager, chase system, pipeline internals &mdash; vs ~8 documented</td><td><a href="#apis">&darr;</a></td></tr>
+  <tr><td>Design language copied</td><td>"YANS" term and ModDB description structure reproduced from AlifePlus readme</td><td><a href="#yans">&darr;</a></td></tr>
+  <tr><td>Fatal crash on first test</td><td><code>tostring(vector)</code> at line 182 &mdash; crashes AP's pipeline for all users</td><td><a href="#crash">&darr;</a></td></tr>
+  <tr><td>Depends on DMCA'd code</td><td>Requires SISKI 0.9.5, which is under active DMCA takedown</td><td><a href="#siski-dep">&darr;</a></td></tr>
+  <tr><td>License requirements broken</td><td>No LICENSE file, 15+ internal functions accessed, source fed to code generator</td><td><a href="#license">&darr;</a></td></tr>
+</table>
+</section>
+
+<!-- 2. THE MOD -->
+<section id="mod">
+<h2>The Mod</h2>
+<table>
+  <tr><th>Field</th><th>Value</th></tr>
+  <tr><td>Author</td><td>forTheMonolith (ModDB)</td></tr>
+  <tr><td>Uploaded</td><td>April 4, 2026</td></tr>
+  <tr><td>Size</td><td>73.51 KB (28 scripts + 2 XML)</td></tr>
+  <tr><td>Lines</td><td>6,112</td></tr>
+  <tr><td>License on ModDB</td><td>"Proprietary"</td></tr>
+  <tr><td>License file in mod</td><td>None</td></tr>
+  <tr><td>Git repository</td><td>None (zip upload)</td></tr>
+  <tr><td>Dependencies</td><td>xlibs 1.2.3+, AlifePlus 1.2.2+, SISKI 0.9.5+</td></tr>
+  <tr><td>Credits in ModDB description</td><td>"AlifePlus and xlibs by Damian Sirbu, SISKI by qkff99"</td></tr>
+  <tr><td>Credits file in mod</td><td>None</td></tr>
+</table>
+</section>
+
+<!-- 3. AUTHORSHIP -->
+<section id="authorship">
+<h2>Authorship Indicators</h2>
+
+<p>The mod's code exhibits numerous characteristics consistent with AI-generated output. The evidence falls into several categories.</p>
+
+<h3>Author's own statement</h3>
+<blockquote>"The more logs file I can get what the more behaviour I can learn and train into the mod."</blockquote>
+<p>This describes an iterative process: code generation tool produces output, users test and report crashes, crash logs are fed back to generate fixes. The first real user to install the mod got a fatal engine crash (<a href="#crash">below</a>), confirming zero pre-upload testing.</p>
+
+<h3>Mechanical uniformity</h3>
+<p>Every file follows the exact same template, without any of the natural variation that appears in hand-written code:</p>
+<table>
+  <tr><th>Pattern</th><th>Count</th><th>Note</th></tr>
+  <tr><td><code>-- ===...===</code> section dividers</td><td>28/28 files</td><td>Identical formatting, identical spacing, identical separator length</td></tr>
+  <tr><td>Footer: <code>if printf then printf('[APS] X loaded') end</code></td><td>28/28 files</td><td>Every file ends with this exact line. <code>printf</code> is always defined in Anomaly.</td></tr>
+  <tr><td>Header doc comment block (<code>---</code>)</td><td>28/28 files</td><td>Every file opens with a multi-line doc comment explaining what it does</td></tr>
+  <tr><td>Comments + annotations</td><td>842 + 113</td><td>842 comment lines + 113 <code>@param</code>/<code>@return</code> annotations in 6,112 total lines (13.8% comments, 1.8% annotations). Human STALKER mods have near-zero annotations.</td></tr>
+</table>
+
+<h3>Defensive coding and pcall misuse</h3>
+<p>67 <code>pcall</code> wraps in 6,112 lines. Wrapping calls in pcall hides the problem instead of fixing it. Two categories:</p>
+
+<table>
+  <tr><th>What's wrapped</th><th>Exists?</th><th>Can pcall catch it?</th><th>What actually happens</th></tr>
+  <tr><td><code>:commander_id()</code></td><td style="color:var(--green)">Yes (C++/luabind)</td><td style="color:var(--red)">No</td><td>Engine terminates on fault. pcall does nothing.</td></tr>
+  <tr><td><code>:distance_to()</code></td><td style="color:var(--green)">Yes (C++/luabind)</td><td style="color:var(--red)">No</td><td>Engine terminates on fault. pcall does nothing.</td></tr>
+  <tr><td><code>alife_create_item</code></td><td style="color:var(--green)">Yes (C++/luabind)</td><td style="color:var(--red)">No</td><td>Engine terminates on fault. pcall does nothing.</td></tr>
+  <tr><td><code>ap_alife_tracker.script_squad</code></td><td style="color:var(--green)">Yes (AP internal)</td><td style="color:var(--yellow)">Yes, but hides real bugs</td><td>Silently swallows errors in AP's state manager.</td></tr>
+  <tr><td><code>alife_create_item("outfit_exo_1")</code></td><td style="color:var(--red)">No &mdash; hallucinated</td><td>&mdash;</td><td>Item doesn't exist. pcall hides the failure.</td></tr>
+  <tr><td><code>alife_create_item("wpn_sig550")</code></td><td style="color:var(--red)">No &mdash; hallucinated</td><td>&mdash;</td><td>Item doesn't exist. pcall hides the failure.</td></tr>
+  <tr><td><code>alife_create_item("wpn_fn2000")</code></td><td style="color:var(--red)">No &mdash; hallucinated</td><td>&mdash;</td><td>Item doesn't exist. pcall hides the failure.</td></tr>
+  <tr><td><code>alife_create_item("wpn_gauss")</code></td><td style="color:var(--red)">Not spawnable (dialog only)</td><td>&mdash;</td><td>Fails silently or crashes.</td></tr>
+  <tr><td><code>alife_create_item("wpn_pkm")</code></td><td style="color:var(--red)">Not spawnable (dialog only)</td><td>&mdash;</td><td>Fails silently or crashes.</td></tr>
+  <tr><td>+ 14 more C++/luabind calls</td><td style="color:var(--green)">Yes</td><td style="color:var(--red)">No</td><td>Same pattern &mdash; false safety.</td></tr>
+  <tr><td>+ ~30 Lua-side calls</td><td style="color:var(--green)">Yes</td><td style="color:var(--yellow)">Yes, but unnecessary</td><td>Guards on code that cannot fail.</td></tr>
+</table>
+
+<p>The generator doesn't know the X-Ray runtime boundary: pcall cannot catch C++/luabind faults because the engine terminates the process before Lua sees the error. And for hallucinated items, pcall just hides the fact that the feature doesn't work. For comparison, <a href="siski.html#aislop">SISKI</a> has 488 pcalls at 1/59 lines.</p>
+
+<p>Other indicators: 74 <code>tostring()</code> wraps including one on an X-Ray vector that caused the <a href="#crash">fatal crash</a>, 125 nil-guards on values guaranteed by the code's own logic, 170 log statements (1 per 36 lines vs AlifePlus's 1 per 120), and two empty <code>for</code> loops that iterate over results but execute no code (vestigial from an earlier generation pass).</p>
+
+<h3>RPG template systems</h3>
+<p>Several gameplay systems follow textbook AI RPG design patterns with no STALKER-specific grounding:</p>
+<ul>
+  <li><strong>4-trait personality system</strong> (aggression, greed, caution, loyalty) with faction bias tables and random variation -- a standard AI fantasy RPG pattern</li>
+  <li><strong>3-tier boss system</strong> (Lieutenant/Captain/Warlord) with nickname pools ("Razor", "Butcher", "Ghost", "Shadow"), gear injection, rank boost -- classic AI game design template</li>
+  <li><strong>Wealth scoring formula</strong> (outfit_tier * weight + artefact_count * weight + money / divisor) -- textbook numeric scoring that looks reasonable but has never been tested against actual game balance</li>
+  <li><strong>Passive tension generation</strong> between 30 hardcoded faction pairs -- the AI generated a complete faction conflict matrix without understanding which factions actually interact in-game</li>
+</ul>
+
+<h3>Fabricated version number</h3>
+<p>"v2.7.0" implies a long development history with 2 major versions and 7 minor releases. No git repository exists. No prior versions exist on ModDB. The first user to install the mod got a fatal crash on basic gameplay. No version with this code could have been tested or iterated on.</p>
+
+<h3>ModDB readme</h3>
+<p>The ModDB description is approximately 5,500 words in English + 2,000 words in Russian. The section structure mirrors AlifePlus's own ModDB description: "How it works step by step:", numbered bullets, "What makes it realistic:", "PDA notifications:", "What you experience:". The AlifePlus readme was provided to the code generation tool alongside the source, and the AI reproduced the same organizational template for a different mod. Both language versions are semantically identical -- consistent with generation from a single source followed by machine translation.</p>
+</section>
+
+<!-- 4. FRAMEWORK PATTERN MATCHING -->
+<section id="framework">
+<h2>Framework Pattern Matching</h2>
+
+<p>AlifePlus has internal conventions for how causes and consequences are structured. These are documented in <code>architecture.md</code> and <code>conventions.md</code> -- development documents, not a public API specification. APS follows these conventions exactly:</p>
+
+<h3>4a. Naming conventions -- every layer matches</h3>
+
+<p><strong>In plain English:</strong> AlifePlus has a naming system for its files, events, and settings &mdash; not published anywhere as a standard. APS uses the exact same scheme, just swapping in different words. The structure, separators, prefixes, and suffixes are character-for-character identical.</p>
+
+<table>
+  <tr><th>What</th><th>AlifePlus pattern</th><th>APS (identical pattern)</th></tr>
+  <tr><td>Cause file</td><td><code>ap_cause_<strong>stash</strong>.script</code></td><td><code>aps_cause_<strong>wealthy</strong>.script</code></td></tr>
+  <tr><td>Consequence file</td><td><code>ap_consequence_<strong>stash_ambush</strong>.script</code></td><td><code>aps_consequence_<strong>wealthy_ambush</strong>.script</code></td></tr>
+  <tr><td>Cause event name</td><td><code>"cause:<strong>stash</strong>"</code></td><td><code>"cause:<strong>wealthy</strong>"</code></td></tr>
+  <tr><td>Consequence event name</td><td><code>"consequence:<strong>stash_ambush</strong>"</code></td><td><code>"consequence:<strong>wealthy_ambush</strong>"</code></td></tr>
+  <tr><td>MCM enabled key</td><td><code>cause_<strong>stash</strong>_enabled</code></td><td><code>cause_<strong>wealthy</strong>_enabled</code></td></tr>
+  <tr><td>MCM chance key</td><td><code>consequence_<strong>stash_ambush</strong>_chance</code></td><td><code>consequence_<strong>wealthy_rob</strong>_chance</code></td></tr>
+  <tr><td>MCM PDA key</td><td><code>consequence_<strong>stash_ambush</strong>_pda_chance</code></td><td><code>consequence_<strong>wealthy_rob</strong>_pda_chance</code></td></tr>
+  <tr><td>PDA message key</td><td><code>"text_pda_consequence_<strong>stash_ambush</strong>"</code></td><td><code>"text_pda_consequence_<strong>wealthy_rob</strong>"</code></td></tr>
+  <tr><td>PDA lost message</td><td><code>"text_pda_consequence_<strong>squadkill_revenge</strong>_lost"</code></td><td><code>"text_pda_consequence_<strong>wealthy_rob</strong>_lost"</code></td></tr>
+  <tr><td>PDA found message</td><td><code>"text_pda_consequence_<strong>squadkill_revenge</strong>_found"</code></td><td><code>"text_pda_consequence_<strong>wealthy_rob</strong>_found"</code></td></tr>
+  <tr><td>Chase handler key</td><td><code>"<strong>revenge</strong>_chase"</code></td><td><code>"<strong>wealthy_rob</strong>_chase"</code></td></tr>
+  <tr><td>MCM config prefix</td><td><code>xmcm.create_config("<strong>ap</strong>", ...)</code></td><td><code>xmcm.create_config("<strong>aps</strong>", ...)</code></td></tr>
+  <tr><td>Save data key</td><td><code>m_data.<strong>ap</strong>_tension</code></td><td><code>m_data.<strong>aps</strong>_tension</code></td></tr>
+</table>
+
+<p>Every row follows the same template with only the bold word substituted. This pattern is documented in AlifePlus's internal <code>conventions.md</code> -- a development document, not a public specification.</p>
+
+<h3>4b. Handler structure -- the skeleton is identical</h3>
+
+<p><strong>In plain English:</strong> Every AlifePlus consequence handler follows the same structure: extract the trace, wrap in observe(), check gates in a fixed order, find targets, move squads, send PDA, return a result code. APS handlers follow the exact same structure in the exact same order. Below is real code from both &mdash; the only difference is the consequence name.</p>
+
+<div class="compare">
+  <div class="compare-panel">
+    <div class="compare-label src">AlifePlus: ap_consequence_stash_ambush.script</div>
+    <pre><code>local function _handler(event_data)
+    local trace = event_data._trace
+    return ap_debug.observe(trace,
+      CONSEQUENCE.STASH_AMBUSH, function()
+
+        -- GATE 1: MCM enabled?
+        if not cfg.consequence_stash_ambush_enabled
+          then return { code = RESULT.DISABLED_NEXT }
+        end
+
+        -- GATE 2: chance roll
+        if not xmath.chance(cfg
+          .consequence_stash_ambush_chance)
+          then return { code = RESULT.CHANCE_NEXT }
+        end
+
+        -- GATE 3: data validation
+        if not position then
+          return { code = RESULT.RULES_NEXT }
+        end
+
+        -- FIND: squads near position
+        local ambushers =
+          ap_utils.find_squads_observed(trace,
+            position, opts)
+
+        -- MOVE: script squads to smart
+        ap_debug.observe(trace,
+          ACTION.MOVE_SQUAD, function()
+            for _, sq in ipairs(ambushers) do
+              ap_alife_tracker.script_squad(
+                sq, smart, { rush = cfg
+                  .consequence_stash_ambush_rush })
+        end end)
+
+        -- PDA: send message
+        ap_debug.observe(trace,
+          ACTION.SEND_PDA, function()
+            ap_utils.send_pda(cfg
+              .consequence_stash_ambush_pda_chance,
+              "text_pda_consequence_stash_ambush",
+              { location = location })
+        end)
+
+        -- RESULT
+        return ap_debug.result_squads(moved, {
+            code = RESULT.OK_STOP,
+            dst_id = smart.id,
+        })
+    end)
+end</code></pre>
+  </div>
+  <div class="compare-panel">
+    <div class="compare-label cpy">APS: aps_consequence_wealthy_ambush.script</div>
+    <pre><code>local function _handler(event_data)
+    local trace = event_data._trace
+    return ap_debug.observe(trace,
+      CONSEQUENCE.WEALTHY_AMBUSH, function()
+
+        -- GATE 1: MCM enabled?
+        if not cfg.consequence_wealthy_ambush_enabled
+          then return { code = RESULT.DISABLED_NEXT }
+        end
+
+        -- GATE 2: chance roll
+        if not xmath.chance(
+          aps_difficulty.adjust_chance(cfg
+            .consequence_wealthy_ambush_chance,
+            "ambush"))
+          then return { code = RESULT.CHANCE_NEXT }
+        end
+
+        -- GATE 3: data validation
+        if not position then
+          return { code = RESULT.RULES_NEXT }
+        end
+
+        -- FIND: squads near position
+        local ambushers =
+          ap_utils.find_squads_observed(trace,
+            ambush_smart.position, opts)
+
+        -- MOVE: script squads to smart
+        ap_debug.observe(trace,
+          ACTION.MOVE_SQUAD, function()
+            for _, ambusher in ipairs(ambushers) do
+              ap_alife_tracker.script_squad(
+                ambusher, ambush_smart, { rush = cfg
+                  .consequence_wealthy_ambush_rush })
+        end end)
+
+        -- PDA: send message
+        ap_debug.observe(trace,
+          ACTION.SEND_PDA, function()
+            ap_utils.send_pda(cfg
+              .consequence_wealthy_ambush_pda_chance,
+              "text_pda_consequence_wealthy_ambush",
+              { location = location })
+        end)
+
+        -- RESULT
+        return ap_debug.result_squads(moved, {
+            code = RESULT.OK_NEXT,
+            dst_id = ambush_smart.id,
+        })
+    end)
+end</code></pre>
+  </div>
+</div>
+
+<p>Line by line: same function signature, same trace extraction, same observe() wrapper, same gate order (enabled -> chance -> validation), same find_squads_observed(), same nested observe(ACTION.MOVE_SQUAD), same script_squad() call with same rush config key, same nested observe(ACTION.SEND_PDA), same send_pda() call with same key pattern, same result_squads() return. The only differences are the consequence name and the addition of <code>aps_difficulty.adjust_chance()</code>.</p>
+
+<h3>4c. Cause registration -- identical loop</h3>
+
+<div class="compare">
+  <div class="compare-panel">
+    <div class="compare-label src">AlifePlus: ap_cause_stash.script :on_game_start</div>
+    <pre><code>function on_game_start()
+    local radiant = ap_const.RADIANT_CALLBACKS
+    for i = 1, #radiant do
+        ap_producer_reactive.register(
+            CAUSE.STASH,
+            { callback = radiant[i] },
+            _on_smart
+        )
+    end
+    ap_debug.info("[CAUSE.STASH] Initialized")
+end</code></pre>
+  </div>
+  <div class="compare-panel">
+    <div class="compare-label cpy">APS: aps_cause_wealthy.script :248-280</div>
+    <pre><code>function on_game_start()
+    cfg = aps_mcm.cfg
+    for i = 1, #ap_const.RADIANT_CALLBACKS do
+        ap_producer_reactive.register(
+            CAUSE.WEALTHY,
+            { callback =
+              ap_const.RADIANT_CALLBACKS[i],
+              priority = 80 },
+            _on_radiant
+        )
+    end
+    _aps_log.info("[CAUSE.WEALTHY] Initialized")
+end</code></pre>
+  </div>
+</div>
+
+<h3>4d. Consequence registration -- identical call</h3>
+
+<div class="compare">
+  <div class="compare-panel">
+    <div class="compare-label src">AlifePlus: ap_consequence_stash_ambush.script</div>
+    <pre><code>ap_consumer.register(
+    CONSEQUENCE.STASH_AMBUSH, {
+        event = CAUSE.STASH,
+        priority = 20,
+        condition = function()
+            return cfg
+              .consequence_stash_ambush_enabled
+        end,
+    },
+    _handler
+)</code></pre>
+  </div>
+  <div class="compare-panel">
+    <div class="compare-label cpy">APS: aps_consequence_wealthy_ambush.script :92</div>
+    <pre><code>ap_consumer.register(
+    CONSEQUENCE.WEALTHY_AMBUSH, {
+        event = CAUSE.WEALTHY,
+        priority = 20,
+        condition = function()
+            return cfg
+              .consequence_wealthy_ambush_enabled
+        end,
+    },
+    _handler
+)</code></pre>
+  </div>
+</div>
+
+<p>Same function. Same argument structure. Same field names. Same priority value (20). Same condition pattern. Only the cause/consequence names differ.</p>
+
+<h3>4e. Chase configuration -- identical table keys</h3>
+
+<div class="compare">
+  <div class="compare-panel">
+    <div class="compare-label src">AlifePlus: ap_consequence_squadkill_revenge</div>
+    <pre><code>local chase_opts = {
+  handler_key   = "revenge_chase",
+  log_prefix    = "CONSEQUENCE.SQUADKILL_REVENGE",
+  max_chases_key= "consequence_squadkill_revenge_max_chases",
+  pda_chance_key= "consequence_squadkill_revenge_pda_chance",
+  pda_start     = "text_pda_consequence_squadkill_revenge",
+  pda_lost      = "text_pda_consequence_squadkill_revenge_lost",
+  pda_found     = "text_pda_consequence_squadkill_revenge_found",
+  rush_key      = "consequence_squadkill_revenge_rush",
+}
+
+-- on_game_start:
+chase_opts.cfg = cfg
+ap_utils.chase_register(chase_opts)</code></pre>
+  </div>
+  <div class="compare-panel">
+    <div class="compare-label cpy">APS: aps_consequence_wealthy_rob.script :28-36</div>
+    <pre><code>local chase_opts = {
+  handler_key   = "wealthy_rob_chase",
+  log_prefix    = "CONSEQUENCE.WEALTHY_ROB",
+  max_chases_key= "consequence_wealthy_rob_max_chases",
+  pda_chance_key= "consequence_wealthy_rob_pda_chance",
+  pda_start     = "text_pda_consequence_wealthy_rob",
+  pda_lost      = "text_pda_consequence_wealthy_rob_lost",
+  pda_found     = "text_pda_consequence_wealthy_rob_found",
+  rush_key      = "consequence_wealthy_rob_rush",
+}
+
+-- on_game_start:
+chase_opts.cfg = cfg
+ap_utils.chase_register(chase_opts)</code></pre>
+  </div>
+</div>
+
+<p>9 identical table keys. Same registration call. Same <code>.cfg = cfg</code> assignment. The values follow the naming convention from AlifePlus's <code>conventions.md</code>.</p>
+
+<h3>4f. MCM config creation -- one character different</h3>
+
+<div class="compare">
+  <div class="compare-panel">
+    <div class="compare-label src">AlifePlus: ap_mcm.script :508</div>
+    <pre><code>cfg, get_config, load_config =
+    xmcm.create_config("ap", defaults, path_builder)
+
+function on_game_start()
+    load_config()
+    RegisterScriptCallback(
+      "on_option_change", load_config)
+end</code></pre>
+  </div>
+  <div class="compare-panel">
+    <div class="compare-label cpy">APS: aps_mcm.script :74-79</div>
+    <pre><code>cfg, get_config, load_config =
+    xmcm.create_config("aps", defaults, path_builder)
+
+function on_game_start()
+    load_config()
+    RegisterScriptCallback(
+      "on_option_change", load_config)
+end</code></pre>
+  </div>
+</div>
+
+<p>The only difference is <code>"ap"</code> vs <code>"aps"</code> -- one character. Everything else is identical: same variable names, same function call, same callback registration, same lifecycle hook.</p>
+</section>
+
+<!-- 5. FRAMEWORK API USAGE -->
+<section id="apis">
+<h2>Framework API Usage</h2>
+
+<p><strong>In plain English:</strong> AlifePlus has two layers: a public <a href="guide.html">guide</a> that shows mod authors what functions to call, and internal development documents that describe how AlifePlus itself is built &mdash; naming rules, file organization, handler structure, config key formats. APS bypassed the public API and used the internal documents directly, reproducing the internal conventions character-for-character with only the names changed.</p>
+
+<h3>5a. Documented API (Level 1 and 2 &mdash; these are fine to use)</h3>
+
+<p>The <a href="guide.html">usage guide</a> documents these integration paths:</p>
+<table>
+  <tr><th>Function</th><th>Level</th><th>Purpose</th></tr>
+  <tr><td><code>xbus.subscribe()</code></td><td>Level 1</td><td>Listen to cause events</td></tr>
+  <tr><td><code>ap_producer_reactive.register()</code></td><td>Level 2</td><td>Register cause predicates</td></tr>
+  <tr><td><code>ap_consumer.register()</code></td><td>Level 2</td><td>Register consequence handlers</td></tr>
+  <tr><td><code>ap_const.RADIANT_CALLBACKS</code></td><td>Level 2</td><td>Callback array for registration loops</td></tr>
+  <tr><td><code>ap_const.RESULT.*</code></td><td>Level 2</td><td>Handler return codes</td></tr>
+</table>
+<p>APS uses these calls correctly. <strong>This is not the issue.</strong></p>
+
+<h3>5b. Undocumented internals (Level 3 &mdash; not part of any public API)</h3>
+
+<p>These functions do not appear in the <a href="guide.html">guide</a>. They can only be discovered by reading AlifePlus source code. <strong>~8 documented API calls vs ~70+ undocumented internal calls.</strong></p>
+
+<p><strong>Tracing system</strong> (33+ calls) &mdash; AP's internal hierarchical trace/debug pipeline:</p>
+<table>
+  <tr><th>Function</th><th>Calls</th><th style="background:rgba(207,34,46,0.08)">In public API?</th></tr>
+  <tr><td><code>ap_debug.observe()</code> &mdash; wrap logic in trace context</td><td>10+</td><td style="color:var(--red)"><strong>No</strong></td></tr>
+  <tr><td><code>ap_debug.trace()</code> / <code>result_squads()</code> &mdash; create traces, build results</td><td>8</td><td style="color:var(--red)"><strong>No</strong></td></tr>
+  <tr><td><code>ap_debug.debug()</code> / <code>warn()</code> &mdash; internal logging</td><td>15+</td><td style="color:var(--red)"><strong>No</strong></td></tr>
+</table>
+
+<p><strong>State manager</strong> (15 calls) &mdash; AP's internal squad tracking and elite system:</p>
+<table>
+  <tr><th>Function</th><th>Calls</th><th style="background:rgba(207,34,46,0.08)">In public API?</th></tr>
+  <tr><td><code>ap_alife_tracker.script_squad()</code> &mdash; script squads to destinations</td><td>6</td><td style="color:var(--red)"><strong>No</strong></td></tr>
+  <tr><td><code>ap_alife_tracker.script_actor_target()</code> &mdash; lock squads onto player</td><td>2</td><td style="color:var(--red)"><strong>No</strong></td></tr>
+  <tr><td><code>ap_alife_tracker.register_arrival_handler()</code> &mdash; arrival callbacks</td><td>1</td><td style="color:var(--red)"><strong>No</strong></td></tr>
+  <tr><td><code>ap_alife_tracker.get_elite_level()</code> / <code>is_elite()</code> &mdash; elite queries</td><td>6</td><td style="color:var(--red)"><strong>No</strong></td></tr>
+</table>
+
+<p><strong>Internal helpers and data</strong> (22+ calls) &mdash; chase system, search wrappers, pipeline internals:</p>
+<table>
+  <tr><th>Function</th><th>Calls</th><th style="background:rgba(207,34,46,0.08)">In public API?</th></tr>
+  <tr><td><code>ap_utils.chase_start()</code> / <code>chase_register()</code> &mdash; chase mechanics</td><td>2</td><td style="color:var(--red)"><strong>No</strong></td></tr>
+  <tr><td><code>ap_utils.find_squads_observed()</code> / <code>find_smart_observed()</code> &mdash; traced search</td><td>6</td><td style="color:var(--red)"><strong>No</strong></td></tr>
+  <tr><td><code>ap_utils.event_publish()</code> / <code>increment_cause_counter()</code> &mdash; bypass cause flow</td><td>4</td><td style="color:var(--red)"><strong>No</strong></td></tr>
+  <tr><td><code>ap_utils.send_pda()</code> / <code>get_location_description()</code> &mdash; PDA formatting</td><td>7</td><td style="color:var(--red)"><strong>No</strong></td></tr>
+  <tr><td><code>ap_const.RADIUS_CLOSE_MAX</code> / <code>DISTANT_MAX</code> &mdash; distance thresholds</td><td>5</td><td style="color:var(--red)"><strong>No</strong></td></tr>
+  <tr><td><code>ap_data.community_stalker</code> / <code>community_predator</code> &mdash; faction filters</td><td>6</td><td style="color:var(--red)"><strong>No</strong></td></tr>
+</table>
+
+<p>Several modules are accessed via <code>rawget(_G, ...)</code> &mdash; bypassing module resolution to reach into the global table directly.</p>
+
+<p>APS uses 14 of 16 xlibs modules. Every AlifePlus and xlibs function call is correct &mdash; right module, right name, right arguments, right field names. No framework call is hallucinated. This strongly suggests the complete source of both codebases was provided to the code generation tool. (Game item sections and engine APIs, which were <em>not</em> in the provided source, <em>are</em> hallucinated &mdash; see <a href="#authorship">above</a>.)</p>
+
+<div class="callout warn">
+<strong>How to do this properly:</strong> The <a href="guide.html">guide</a> documents three integration levels. Level 1 (xbus subscriptions) and Level 2 (cause/consequence registration) cover most use cases without touching internals. APS uses Level 2 registration correctly but also reaches directly into Level 3 internals (tracker, chase system, tracing pipeline). These APIs are not stable and will change.
+</div>
+</section>
+
+<!-- 6. DESIGN LANGUAGE & DESCRIPTION -->
+<section id="yans">
+<h2>Design Language and ModDB Description</h2>
+
+<p>AlifePlus's <code>readme.txt</code> opens with: <em>"You are not special."</em> Its <code>architecture.md</code> defines it as: <em>"YANS (You Are Not Special). Same rules for player and NPCs."</em> This term appears only in AlifePlus documentation.</p>
+
+<p>APS reproduces it in three places:</p>
+<table>
+  <tr><th>Where</th><th style="background:rgba(207,34,46,0.08)">APS text</th></tr>
+  <tr><td>ModDB heading</td><td style="color:var(--red)"><em>"CORE PHILOSOPHY: You Are Not Special"</em></td></tr>
+  <tr><td>ModDB body</td><td style="color:var(--red)"><em>"You are not special &mdash; same rules apply to everyone"</em></td></tr>
+  <tr><td>Code comment (<code>aps_cause_wealthy.script:32</code>)</td><td style="color:var(--red)"><em>"YANS: same evaluation logic for player and NPCs"</em></td></tr>
+</table>
+
+<p>The ModDB description itself follows AlifePlus's readme structure section by section:</p>
+<table>
+  <tr><th>Section pattern</th><th style="background:rgba(26,127,55,0.08)">AlifePlus readme</th><th style="background:rgba(207,34,46,0.08)">APS ModDB description</th></tr>
+  <tr><td>Opening philosophy</td><td style="color:var(--green)"><em>"You are not special"</em></td><td style="color:var(--red)"><em>"CORE PHILOSOPHY: You Are Not Special"</em></td></tr>
+  <tr><td>Zone runs itself</td><td style="color:var(--green)"><em>"the Zone runs on its own rules, and the actor is just another entity inside it"</em></td><td style="color:var(--red)"><em>"The Zone has its own life, its own conflicts, its own economy. You just happen to be in it."</em></td></tr>
+  <tr><td>Step-by-step walkthrough</td><td style="color:var(--green)"><em>"Example scenario (systemic interaction): A stalker reaches a location..."</em></td><td style="color:var(--red)"><em>"How it works step by step: Your wealth is scored every 5 game-minutes..."</em></td></tr>
+  <tr><td>Realism section</td><td style="color:var(--green)"><em>"NPCs consume real items from their inventory on arrival"</em></td><td style="color:var(--red)"><em>"What makes it realistic: Each squad runs through a personality-driven risk evaluation"</em></td></tr>
+  <tr><td>PDA notifications</td><td style="color:var(--green)">PDA map markers as feature</td><td style="color:var(--red)"><em>"PDA notifications:"</em> with identical formatting</td></tr>
+  <tr><td>FAQ structure</td><td style="color:var(--green)"><em>"Does it conflict..."</em>, <em>"Does it work with GAMMA?"</em>, <em>"Does it work mid-save?"</em></td><td style="color:var(--red)">Same questions, same order, same answers</td></tr>
+  <tr><td>MO2 install</td><td style="color:var(--green)"><em>"Install (MO2): 1. Install xlibs 2. Install AlifePlus"</em></td><td style="color:var(--red)">Same steps, same format, adds priority numbers</td></tr>
+  <tr><td>Dual language</td><td style="color:var(--green)">English only</td><td style="color:var(--red)">English + Russian (semantically identical, machine-translated)</td></tr>
+</table>
+
+<p>The APS ModDB description is approximately 5,500 words in English + 2,000 words in Russian. The AlifePlus readme was provided to the code generation tool alongside the source code, and the AI reproduced the same organizational template for a different mod.</p>
+</section>
+
+<!-- 7. RUNTIME BEHAVIOR -->
+<section id="crash">
+<h2>Runtime Behavior</h2>
+
+<p>The first user to test the mod reported a fatal engine crash:</p>
+<pre><code>FATAL ERROR
+aps_consequence_wealthy_rob.script(182) : _run_handler
+LUA error: No such operator defined</code></pre>
+
+<p>The crash occurs at line 182, where <code>tostring(event_data.position)</code> is called on an X-Ray engine <code>vector</code> userdata. X-Ray vectors do not define <code>__tostring</code>. This is a known engine limitation that any STALKER modder encounters early.</p>
+
+<p>The crash propagates through AP's internal pipeline: <code>ap_consumer._process</code> -> <code>xbus.publish</code> -> <code>ap_producer_reactive</code>. Because APS injects directly into AP's dispatch chain via <code>ap_producer_reactive.register()</code> and <code>ap_consumer.register()</code>, a crash in APS code crashes AlifePlus itself for any user who has both installed.</p>
+
+<p>The "v2.7.0" version number in the mod name does not correspond to any observable development history. No git repository exists.</p>
+</section>
+
+<!-- 8. SISKI DEPENDENCY -->
+<section id="siski-dep">
+<h2>SISKI Dependency</h2>
+
+<p>APS requires SISKI 0.9.5+ and accesses its internals 32 times via <code>_G.siski.*</code> (bus, memory, board_index, mutants, loot, fast_trading, ap_bridge, tasks). SISKI 0.9.5 is the version that is the subject of an active <a href="siski.html">DMCA takedown</a> for containing architecture copied from AlifePlus.</p>
+
+<p>The dependency chain:</p>
+<pre><code>AlifePlus (original) --> SISKI 0.9.5 (under DMCA) --> APS v2.7.0 (this mod)
+xlibs (original)     --> SISKI 0.9.5 (under DMCA) --> APS v2.7.0 (this mod)</code></pre>
+</section>
+
+<!-- 9. FEATURE SET CLONING -->
+<section id="features">
+<h2>Feature Set Cloning</h2>
+
+<p>Beyond the framework and API usage documented above, APS's feature list is assembled from ideas found in existing Anomaly mods and in AlifePlus itself. The code implementations differ, but the gameplay concepts are taken directly from these sources without acknowledgment.</p>
+
+<table>
+  <tr><th>APS feature</th><th>Source</th><th>Original author</th><th>What was taken</th></tr>
+  <tr>
+    <td>Cross-level robbery: outlaws hear about wealthy targets and send squads to rob them</td>
+    <td><a href="https://www.moddb.com/mods/stalker-anomaly/addons/mugging-squads">Mugging Squads</a></td>
+    <td>Demonized</td>
+    <td>The core concept: hostile NPCs approach the player specifically to rob them based on gear/wealth. Demonized's version includes dialogue, warnings, and player choices. APS strips this to silent combat but the gameplay idea (NPCs target you for your gear) is the same.</td>
+  </tr>
+  <tr>
+    <td>Faction tension system: hostility accumulates from combat, triggers retaliatory strikes</td>
+    <td><a href="https://www.moddb.com/mods/stalker-anomaly/addons/dynamic-faction-relation-customizer">Dynamic Faction Relations Customizer</a></td>
+    <td>dEmergence</td>
+    <td>The concept of tracking per-faction hostility that changes dynamically based on combat events. DFRC modifies engine faction relations directly; APS tracks a parallel "tension" score. Different system, same idea.</td>
+  </tr>
+  <tr>
+    <td>Boss/elite NPC emergence: squads earn status through survival and kills, get better gear and rank</td>
+    <td><strong>AlifePlus itself</strong></td>
+    <td>Damian Sirbu</td>
+    <td>AlifePlus has an elite system (<code>ap_alife_tracker</code> elite tracking, <code>ap_consequence_elite_promote</code>) and formerly had a legend system. APS's 3-tier boss system (Lieutenant/Captain/Warlord with gear injection, rank boost, PDA markers) is a direct reimplementation of AP's elite promotion concept with added RPG chrome (nickname pools, tiered gear tables). The AI was given AP's source and generated a "fancier" version of the existing feature.</td>
+  </tr>
+  <tr>
+    <td>Bounty system: factions place bounties on each other, hunter squads pursue targets</td>
+    <td><a href="https://www.moddb.com/mods/stalker-anomaly/addons/bounty-squads-extended">Bounty Squads Extended</a> (concept) + AlifePlus <code>elitekill_targeted</code></td>
+    <td>Vintar0 / Damian Sirbu</td>
+    <td>The bounty concept exists in multiple Anomaly mods. APS's specific implementation (tension threshold triggers bounty placement, hunter squads dispatched via personality evaluation) mirrors AP's existing <code>elitekill_targeted</code> consequence pattern with a tension-driven trigger added.</td>
+  </tr>
+  <tr>
+    <td>Weather-driven behavior: emissions suppress robbery, night increases it</td>
+    <td><a href="https://www.moddb.com/mods/stalker-anomaly/addons/dynamic-nocturnal-mutants-for-anomaly-151">Dynamic NOCTURNAL Mutants</a></td>
+    <td>bmblbx176</td>
+    <td>The concept of time-of-day affecting NPC behavior (night = more dangerous). APS uses the same night hours (22:00-05:00) for robbery bonuses that Nocturnal Mutants uses for spawn waves.</td>
+  </tr>
+  <tr>
+    <td>Population safeguard: prevent maps from becoming empty</td>
+    <td><a href="https://www.moddb.com/mods/stalker-anomaly/addons/zone-customization-project-zcp">Zone Customization Project (ZCP)</a></td>
+    <td>dph-hcl</td>
+    <td>ZCP's population factors control squad density per level. APS's population safeguard monitors the same metric and blocks outbound scripting when counts drop too low. Different mechanism, same problem being solved.</td>
+  </tr>
+</table>
+
+<p>Individually, none of these similarities would be notable &mdash; many mods solve similar problems. But the <strong>pattern</strong> is that APS's entire feature list was assembled by systematically cataloguing what already exists in the Anomaly modding ecosystem and asking an AI to generate equivalents. Nearly every feature in APS traces to an existing Anomaly mod or to AlifePlus itself. The remainder are generic RPG templates &mdash; personality traits, boss tiers, nickname pools &mdash; with no STALKER-specific grounding.</p>
+
+<div class="callout warn">
+<strong>On ideas vs code:</strong> Gameplay ideas are not copyrightable, and multiple mods can implement similar features. But there is a difference between independently arriving at the same idea and feeding existing mods' source code into an AI to generate equivalents. The original authors &mdash; Demonized, Vintar0, xcvb, dEmergence, bmblbx176, dph-hcl &mdash; spent real time solving these problems. None are credited in APS.
+</div>
+</section>
+
+<!-- 10. LICENSE REVIEW -->
+<section id="license">
+<h2>License</h2>
+
+<p>Both AlifePlus and xlibs use the PolyForm Perimeter License. The <a href="guide.html">usage guide</a> explains what is permitted.</p>
+
+<table>
+  <tr><th>Requirement</th><th>Status</th><th>Detail</th></tr>
+  <tr><td>Visible credit for AlifePlus</td><td>Partial</td><td>Present in ModDB description. Not in the mod package (no LICENSE, README, or credits file).</td></tr>
+  <tr><td>Visible credit for xlibs</td><td>Partial</td><td>Same -- ModDB only.</td></tr>
+  <tr><td>No reverse engineering internals</td><td>Broken</td><td>Uses 15+ non-public internal functions. AP's internal tracing, chase system, and state manager are called directly rather than through the <a href="guide.html">public API surface</a>.</td></tr>
+  <tr><td>No automated extraction</td><td>Broken</td><td>Complete source was provided to a code generation tool. The resulting code reproduces internal conventions character-for-character.</td></tr>
+</table>
+
+<div class="callout key">
+<strong>How to make this compliant:</strong> The features APS implements could work within the <a href="guide.html">documented integration path</a>. Replace internal API calls (<code>ap_debug.observe</code>, <code>ap_alife_tracker.script_squad</code>, <code>ap_utils.chase_start</code>) with their public equivalents (<code>xsquad.control_squad</code>, <code>xsquad.target_actor</code>, xbus subscriptions). Add a LICENSE file to the mod. If deeper integration is needed, <a href="guide.html">coordinate with the author</a> to establish proper APIs.
+</div>
+</section>
+
+<footer>
+  <p>
+    Analysis of APS v2.7.0 from ModDB (MD5: <code>9bb9bfa7de23de3b95e37bb388669b75</code>). Comparison against AlifePlus and xlibs source. For the SISKI case, see <a href="siski.html">the SISKI report</a>. For proper integration guidance, see <a href="guide.html">the usage guide</a>.
+  </p>
+</footer>
+
+</div>
+</div>
+
+<div class="lightbox" id="lb" onclick="this.classList.remove('open')"><img id="lb-img" src="" alt=""></div>
+<script>
+document.querySelectorAll('.thumb').forEach(function(img) {
+  img.addEventListener('click', function() {
+    document.getElementById('lb-img').src = this.src;
+    document.getElementById('lb').classList.add('open');
+  });
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') document.getElementById('lb').classList.remove('open');
+});
+document.querySelectorAll('h2[id], h3[id]').forEach(function(h) {
+  var a = document.createElement('a');
+  a.className = 'anchor';
+  a.href = '#' + h.id;
+  a.textContent = '#';
+  h.appendChild(a);
+});
+</script>
+</body>
+</html>

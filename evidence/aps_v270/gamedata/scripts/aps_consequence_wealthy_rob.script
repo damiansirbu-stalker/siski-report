@@ -1,0 +1,556 @@
+--- aps_consequence_wealthy_rob: Outlaws chase wealthy entities to rob them
+--- IMPROVED: Cross-level rumor system. If no outlaws nearby, bandits on OTHER
+--- levels hear about the rich target and send squads. PDA rumor message.
+--- Uses population safeguard + ZCP squad count scaling.
+--- YANS: targets NPCs and player equally based on wealth score.
+local ipairs = ipairs
+local RegisterScriptCallback = RegisterScriptCallback
+local CreateTimeEvent, ResetTimeEvent = CreateTimeEvent, ResetTimeEvent
+local RESULT = ap_const.RESULT
+local REASON = ap_const.REASON
+local ACTION = ap_const.ACTION
+local CAUSE = _aps_const.CAUSE
+local CONSEQUENCE = _aps_const.CONSEQUENCE
+
+local cfg
+local community_robber = _aps_const.community_robber
+local _rumor_squads = {}
+local _last_player_level = nil
+local _first_eval = true
+local _last_dispatch_time = 0
+local _last_retry_game_sec = nil
+local time_global = time_global
+local DISPATCH_COOLDOWN_MIN = 900   --- 15 game-minutes minimum
+local DISPATCH_COOLDOWN_MAX = 1800  --- 30 game-minutes maximum
+
+local chase_opts = {
+    handler_key = "wealthy_rob_chase",
+    log_prefix = "CONSEQUENCE.WEALTHY_ROB",
+    max_chases_key = "consequence_wealthy_rob_max_chases",
+    pda_chance_key = "consequence_wealthy_rob_pda_chance",
+    pda_start = "text_pda_consequence_wealthy_rob",
+    pda_lost = "text_pda_consequence_wealthy_rob_lost",
+    pda_found = "text_pda_consequence_wealthy_rob_found",
+    marker = "Robbing",
+    rush_key = "consequence_wealthy_rob_rush",
+}
+
+-- ============================================================================
+-- Cross-level rumor: find outlaws anywhere via SIMBOARD.squads
+-- Uses squad.player_id for faction (same as xsquad.find_squads)
+-- ============================================================================
+
+local function _find_cross_level_robbers(max_count, actor_level_id, exclude_squad_id)
+    if not SIMBOARD or not SIMBOARD.squads then
+        _aps_log.warn("[WEALTHY_ROB] SIMBOARD.squads not available")
+        return {}
+    end
+    local sim = alife()
+    if not sim then return {} end
+
+    local remote = {}
+    local checked = 0
+    local faction_samples = {}
+
+    for squad_id in pairs(SIMBOARD.squads) do
+        if #remote >= max_count then break end
+        local squad = sim:object(squad_id)
+        if not squad or not squad.position then goto skip end
+        local faction = squad.player_id
+        if not faction then goto skip end
+        checked = checked + 1
+        if #faction_samples < 5 then faction_samples[#faction_samples + 1] = faction end
+        if not community_robber[faction] then goto skip end
+        --- Don't exclude same-level squads — they can be redirected immediately
+        if exclude_squad_id and squad_id == exclude_squad_id then goto skip end
+        --- Skip squads already hunting the player (prevents re-dispatch breaking their tracking)
+        if _rumor_squads[squad_id] then goto skip end
+        if xsquad.is_permanent_squad and xsquad.is_permanent_squad(squad) then goto skip end
+        if xsquad.is_unscriptable_squad and xsquad.is_unscriptable_squad(squad) then goto skip end
+        remote[#remote + 1] = squad
+        ::skip::
+    end
+
+    _aps_log.info("[WEALTHY_ROB] CROSS_LEVEL_SEARCH: checked=%d found=%d factions_seen=[%s]",
+        checked, #remote, table.concat(faction_samples, ","))
+    return remote
+end
+
+local function _dispatch_cross_level_robbers(robbers, target_smart, wealth_score, actor_level_id, target_is_player)
+    local moved = {}
+    local refused = 0
+    local target_pos = target_smart.position
+
+    for _, robber in ipairs(robbers) do
+        if xsquad.is_permanent_squad and xsquad.is_permanent_squad(robber) then
+            _aps_log.info("[WEALTHY_ROB] SKIP_PERMANENT: sq=%d", robber.id)
+            goto next_robber
+        end
+
+        --- PERSONALITY CHECK: does this squad actually WANT to rob you?
+        local willing = aps_risk_eval.should_rob(robber.id, wealth_score, target_is_player)
+        if not willing then
+            refused = refused + 1
+            _aps_log.info("[WEALTHY_ROB] REFUSED: sq=%d faction=%s (personality says too risky)",
+                robber.id, tostring(robber.player_id))
+            goto next_robber
+        end
+
+        if robber.scripted_target then
+            _aps_log.info("[WEALTHY_ROB] CLEARING scripted_target on sq=%d (was: %s)",
+                robber.id, tostring(robber.scripted_target))
+            robber.scripted_target = nil
+        end
+
+        local sq_level = xlevel.get_level_id(robber)
+        local same_level = sq_level and actor_level_id and sq_level == actor_level_id
+        _aps_log.info("[WEALTHY_ROB] LEVEL_CHECK: sq=%d sq_level=%s actor_level=%s same=%s",
+            robber.id, tostring(sq_level), tostring(actor_level_id), tostring(same_level))
+
+        local ok, res = pcall(ap_alife_tracker.script_squad, robber, target_smart, { rush = true })
+        if ok and res and res.code == RESULT.OK_NEXT then
+            moved[#moved + 1] = robber
+
+            if same_level then
+                _aps_log.info("[WEALTHY_ROB] DISPATCHED_LOCAL: sq=%d faction=%s -> %s (walks naturally)",
+                    robber.id, tostring(robber.player_id), tostring(target_smart:name()))
+            else
+                --- TELEPORT: must update game vertex AND position for proper level assignment
+                pcall(function()
+                    local smart_gvid = target_smart.m_game_vertex_id
+                    local smart_lvid = target_smart.m_level_vertex_id
+                    local smart_pos = target_smart.position
+
+                    --- Update squad header
+                    robber.m_game_vertex_id = smart_gvid
+                    robber:set_squad_position(smart_pos)
+
+                    --- Update each member NPC so they render on the correct level
+                    for mem in robber:squad_members() do
+                        local se_npc = alife():object(mem.id)
+                        if se_npc and se_npc.id ~= robber:commander_id() then
+                            se_npc.m_game_vertex_id = smart_gvid
+                            se_npc.m_level_vertex_id = smart_lvid
+                        end
+                    end
+
+                    --- Assign to smart via SIMBOARD so the engine tracks it properly
+                    local board = SIMBOARD
+                    if board and board.assign_squad_to_smart then
+                        board:assign_squad_to_smart(robber, target_smart.id)
+                    end
+                end)
+
+                --- Verify the level updated
+                local new_level = xlevel.get_level_id(robber)
+                _aps_log.info("[WEALTHY_ROB] DISPATCHED_REMOTE: sq=%d faction=%s -> %s gvid=%s new_level=%s (should be %s)",
+                    robber.id, tostring(robber.player_id), tostring(target_smart:name()),
+                    tostring(target_smart.m_game_vertex_id), tostring(new_level), tostring(actor_level_id))
+            end
+
+            if _G.siski and _G.siski.bus and _G.siski.bus.publish then
+                _G.siski.bus.publish("ap_bridge_squad_owner_changed", {
+                    event = "ap_bridge_squad_owner_changed",
+                    squad_id = robber.id, owned = true,
+                    owner = "alife_plus", source = "aps_wealthy_rob",
+                })
+            end
+        else
+            _aps_log.info("[WEALTHY_ROB] DISPATCH_REJECTED: sq=%d faction=%s code=%s err=%s",
+                robber.id, tostring(robber.player_id),
+                tostring(res and res.code), tostring(not ok and res or res and res.reason))
+        end
+
+        ::next_robber::
+    end
+
+    if refused > 0 then
+        _aps_log.info("[WEALTHY_ROB] %d squads heard about you but refused (too dangerous)", refused)
+    end
+    return moved
+end
+
+-- ============================================================================
+-- Main handler
+-- ============================================================================
+
+local function _handler(event_data)
+    local wealth_score_raw = event_data and event_data.wealth_score or 0
+    local is_player = event_data and event_data.target_is_player
+    _aps_log.info("[WEALTHY_ROB] === HANDLER START === wealth=%d player=%s pos=%s lvl=%s",
+        wealth_score_raw, tostring(is_player),
+        tostring(event_data and event_data.position), tostring(event_data and event_data.level_id))
+
+    local trace = event_data._trace
+    return ap_debug.observe(trace, CONSEQUENCE.WEALTHY_ROB, function()
+        --- CHECK 1: MCM enabled?
+        if not cfg then cfg = aps_mcm and aps_mcm.cfg end
+        if not cfg or not cfg.consequence_wealthy_rob_enabled then
+            _aps_log.info("[WEALTHY_ROB] BLOCKED: MCM disabled")
+            return { code = RESULT.DISABLED_NEXT }
+        end
+        _aps_log.info("[WEALTHY_ROB] CHECK_1_MCM: enabled=true")
+
+        --- CHECK 2: Chance roll
+        local adj_chance = aps_difficulty.adjust_chance(cfg.consequence_wealthy_rob_chance, "robbery")
+        if wealth_score_raw >= 80 then adj_chance = adj_chance + 20
+        elseif wealth_score_raw >= 60 then adj_chance = adj_chance + 10
+        elseif wealth_score_raw >= 50 then adj_chance = adj_chance + 5
+        end
+        adj_chance = math.min(70, adj_chance)
+        local roll = math.random(1, 100)
+        if roll > adj_chance then
+            _aps_log.info("[WEALTHY_ROB] CHECK_2_CHANCE: FAIL roll=%d needed<=%d (wealth_bonus=%s)",
+                roll, adj_chance, wealth_score_raw >= 80 and "+20" or wealth_score_raw >= 60 and "+10" or "+0")
+            return { code = RESULT.CHANCE_NEXT }
+        end
+        _aps_log.info("[WEALTHY_ROB] CHECK_2_CHANCE: PASS roll=%d needed<=%d", roll, adj_chance)
+
+        --- CHECK 3: Cooldown
+        local now = xtime and xtime.game_sec and xtime.game_sec() or os.clock()
+        local time_since = now - _last_dispatch_time
+        local cooldown = DISPATCH_COOLDOWN_MIN + math.random(0, DISPATCH_COOLDOWN_MAX - DISPATCH_COOLDOWN_MIN)
+        if time_since < cooldown then
+            _aps_log.info("[WEALTHY_ROB] CHECK_3_COOLDOWN: BLOCKED elapsed=%ds cooldown=%ds remaining=%ds",
+                time_since, cooldown, cooldown - time_since)
+            return { code = RESULT.CHANCE_NEXT }
+        end
+        _aps_log.info("[WEALTHY_ROB] CHECK_3_COOLDOWN: PASS elapsed=%ds (last dispatch %ds ago)", time_since, time_since)
+
+        --- CHECK 4: Population safeguard
+        local pop_safe = aps_population.is_level_safe()
+        if not pop_safe then
+            _aps_log.info("[WEALTHY_ROB] CHECK_4_POPULATION: BLOCKED (level depopulated)")
+            return { code = RESULT.RULES_NEXT, reason = _aps_const.REASON.LEVEL_DEPOPULATED }
+        end
+        _aps_log.info("[WEALTHY_ROB] CHECK_4_POPULATION: PASS (safe)")
+
+        local target_is_player = event_data.target_is_player
+        local position, level_id = event_data.position, event_data.level_id
+        if not position then
+            _aps_log.info("[WEALTHY_ROB] BLOCKED: no position data")
+            return { code = RESULT.RULES_NEXT, reason = REASON.NO_POS }
+        end
+
+        --- Scale max squads
+        local wealth_score = event_data.wealth_score or 0
+        local base_max = cfg.consequence_wealthy_rob_max_squads
+        if wealth_score >= 70 then base_max = base_max + 2
+        elseif wealth_score >= 50 then base_max = base_max + 1
+        end
+        local threat = 0
+        if target_is_player and aps_player_intel then
+            threat = aps_player_intel.get_player_threat()
+            if threat > 1.2 then base_max = base_max + 2
+            elseif threat > 0.8 then base_max = base_max + 1
+            end
+        end
+        local scaled_max = aps_zcp_compat.adjust_squad_count(base_max)
+        _aps_log.info("[WEALTHY_ROB] SQUAD_SCALING: base=%d threat=%.2f scaled_max=%d",
+            cfg.consequence_wealthy_rob_max_squads, threat, scaled_max)
+
+        --- STEP 1: Try same-level outlaws first
+        _aps_log.info("[WEALTHY_ROB] STEP1_LOCAL_SEARCH: factions=[bandit,renegade,greh,isg,killer] level=%s radius=%s-%s",
+            tostring(level_id), tostring(ap_const.RADIUS_CLOSE_MAX), tostring(ap_const.RADIUS_DISTANT_MAX))
+        local chasers = ap_utils.find_squads_observed(trace, position, {
+            factions = community_robber,
+            min_distance = ap_const.RADIUS_CLOSE_MAX,
+            max_distance = ap_const.RADIUS_DISTANT_MAX,
+            level_id = level_id,
+            max_count = scaled_max,
+            exclude_unscriptable = true,
+            exclude_squad_id = event_data.squad_id,
+        })
+
+        _aps_log.info("[WEALTHY_ROB] STEP1_RESULT: found=%d local outlaws", #chasers)
+
+        if #chasers > 0 then
+            --- Filter chasers through risk evaluation (personality-driven)
+            local willing_chasers = {}
+            for _, chaser in ipairs(chasers) do
+                local go = aps_risk_eval.should_rob(chaser.id, wealth_score, target_is_player)
+                _aps_log.info("[WEALTHY_ROB] RISK_EVAL_LOCAL: sq=%d faction=%s willing=%s", chaser.id, tostring(chaser.player_id), tostring(go))
+                if go then
+                    willing_chasers[#willing_chasers + 1] = chaser
+                end
+            end
+
+            if #willing_chasers == 0 then
+                _aps_log.info("[WEALTHY_ROB] RISK_BLOCKED: %d outlaws nearby but all refused (too risky)", #chasers)
+                return { code = RESULT.RULES_NEXT, reason = "risk_too_high" }
+            end
+
+            --- Same-level robbery: immediate chase
+            local target_squad
+            if not target_is_player then
+                target_squad = xobject.se(event_data.squad_id)
+                if not target_squad then return { code = RESULT.RULES_NEXT, reason = REASON.NO_TARGET_SQUAD } end
+            end
+
+            local location = ap_utils.get_location_description(nil, position, level_id)
+            local moved, dst_id = ap_utils.chase_start(trace, willing_chasers, target_squad,
+                { location = location, wealth = wealth_score }, chase_opts)
+            if #moved == 0 then return { code = RESULT.RULES_NEXT, reason = REASON.MOVE_FAILED } end
+
+            _aps_log.info("[WEALTHY_ROB] LOCAL: %d/%d robbers chasing (risk filtered), wealth=%d",
+                #moved, #chasers, wealth_score)
+            if printf then
+                printf("[APS] %d outlaws nearby spotted your gear and are coming for you!", #moved)
+            end
+
+            return ap_debug.result_squads(moved, {
+                code = RESULT.OK_STOP, reason = #moved .. "_local_robbers",
+                dst_id = dst_id or 0, wealth = wealth_score,
+            })
+        end
+
+        _aps_log.info("[WEALTHY_ROB] STEP1_RESULT: 0 local outlaws, proceeding to STEP2 (cross-level)")
+
+        --- STEP 2: No local outlaws — cross-level rumor system
+        if not cfg.consequence_wealthy_rob_crosslevel then
+            _aps_log.info("[WEALTHY_ROB] NO_OUTLAWS on level (cross-level disabled)")
+            return { code = RESULT.RULES_NEXT, reason = _aps_const.REASON.NO_OUTLAWS }
+        end
+
+        --- Only trigger cross-level for high wealth (score >= 50)
+        if wealth_score < 50 then
+            _aps_log.info("[WEALTHY_ROB] NO_OUTLAWS on level, wealth=%d too low for rumor", wealth_score)
+            return { code = RESULT.RULES_NEXT, reason = _aps_const.REASON.NO_OUTLAWS }
+        end
+
+        --- Get actor level_id for cross-level comparison
+        local actor_level_id = xlevel.get_actor_level_id()
+
+        local remote_robbers = _find_cross_level_robbers(scaled_max, actor_level_id, event_data.squad_id)
+        if #remote_robbers == 0 then
+            _aps_log.info("[WEALTHY_ROB] NO_OUTLAWS anywhere in Zone")
+            return { code = RESULT.RULES_NEXT, reason = _aps_const.REASON.NO_OUTLAWS }
+        end
+
+        _aps_log.info("[WEALTHY_ROB] FOUND %d cross-level robbers, finding target smart...", #remote_robbers)
+
+        --- Find smart 300-2000m from player — realistic distance, some squads may fight en route
+        local target_smart = xsmart.find_smart(position, {
+            min_distance = 300,
+            max_distance = 2000,
+            level_id = actor_level_id,
+        })
+        if not target_smart then
+            _aps_log.info("[WEALTHY_ROB] CHECK_SMART: FAIL no smart 300-2000m on level=%s — nowhere to dispatch", tostring(actor_level_id))
+            return { code = RESULT.RULES_NEXT, reason = REASON.NO_SMART }
+        end
+        local smart_dist = position:distance_to(target_smart.position)
+        _aps_log.info("[WEALTHY_ROB] CHECK_SMART: PASS smart=%s dist=%.0fm level=%s",
+            tostring(target_smart:name()), smart_dist, tostring(actor_level_id))
+
+        _aps_log.info("[WEALTHY_ROB] target_smart=%s, dispatching %d robbers...",
+            tostring(target_smart:name()), #remote_robbers)
+
+        local moved = _dispatch_cross_level_robbers(remote_robbers, target_smart, wealth_score, actor_level_id, target_is_player)
+        if #moved == 0 then
+            _aps_log.info("[WEALTHY_ROB] DISPATCH_FAILED: no robbers could be scripted")
+            return { code = RESULT.RULES_NEXT, reason = REASON.MOVE_FAILED }
+        end
+
+        --- Send RUMOR PDA message directly (ap_utils.send_pda uses ap_messages, not ours)
+        local location = ap_utils.get_location_description(nil, position, level_id)
+        local rumor_msg = aps_messages.get("text_pda_consequence_wealthy_rob_rumor", { location = location })
+        if rumor_msg then
+            xpda.send("Suspicious Radio Chatter", rumor_msg)
+            --- On-screen HUD tip (always visible, not just PDA tab)
+            if news_manager and news_manager.send_tip then
+                news_manager.send_tip(db.actor, rumor_msg, nil, nil, 8000)
+            end
+            _aps_log.info("[WEALTHY_ROB] PDA_SENT: %s", rumor_msg)
+        end
+
+        --- Console message so player can see it in ~ console
+        if printf then
+            printf("[APS] RUMOR: %d outlaw squads heard about your gear and are heading to your location!", #moved)
+        end
+
+        _aps_log.info("[WEALTHY_ROB] RUMOR: %d robbers dispatched, wealth=%d",
+            #moved, wealth_score)
+
+        --- Set cooldown so next wave doesn't fire immediately
+        _last_dispatch_time = xtime and xtime.game_sec and xtime.game_sec() or os.clock()
+
+        --- Track rumor squads for cleanup
+        for _, robber in ipairs(moved) do
+            _rumor_squads[robber.id] = {
+                dispatched_at = os.clock(),
+                target = "actor",
+            }
+        end
+
+        return ap_debug.result_squads(moved, {
+            code = RESULT.OK_STOP, reason = #moved .. "_rumor_robbers",
+            dst_id = 0, wealth = wealth_score,
+        })
+    end)
+end
+
+-- ============================================================================
+-- Rumor squad tracking: re-target when player changes level
+-- ============================================================================
+
+local function _retarget_rumor_squads()
+    local actor = db.actor
+    if not actor then return end
+    local actor_pos = actor:position()
+    local actor_level_id = xlevel.get_actor_level_id()
+
+    local count = 0
+    for _ in pairs(_rumor_squads) do count = count + 1 end
+    if count == 0 then return end
+
+    _aps_log.info("[WEALTHY_ROB] RETARGET_CHECK: tracking %d rumor squads, actor_level=%s", count, tostring(actor_level_id))
+
+    for squad_id, data in pairs(_rumor_squads) do
+        local se = alife() and alife():object(squad_id)
+        if not se then
+            _aps_log.info("[WEALTHY_ROB] RETARGET: sq=%d DEAD/GONE, removing", squad_id)
+            _rumor_squads[squad_id] = nil
+            goto next
+        end
+
+        local sq_level_id = xlevel.get_level_id(se)
+        local on_player_level = sq_level_id and actor_level_id and sq_level_id == actor_level_id
+
+        _aps_log.info("[WEALTHY_ROB] RETARGET: sq=%d faction=%s sq_level=%s actor_level=%s same=%s online=%s arrived=%s",
+            squad_id, tostring(se.player_id), tostring(sq_level_id), tostring(actor_level_id),
+            tostring(on_player_level), tostring(se.online), tostring(data.arrived))
+
+        if on_player_level then
+            local dist = 0
+            pcall(function() dist = actor_pos:distance_to(se.position) end)
+
+            --- First arrival: register with AP tracker ONCE, never release
+            if not data.arrived then
+                data.arrived = true
+
+                --- Use AP tracker's actor target — keeps squad registered so SISKI won't reclaim
+                --- DON'T release first — that creates a gap where SISKI steals ownership
+                local ok, res = pcall(ap_alife_tracker.script_actor_target, se)
+                _aps_log.info("[WEALTHY_ROB] ARRIVED+LOCKED: sq=%d faction=%s dist=%.0fm script_actor_target=%s",
+                    squad_id, tostring(se.player_id), dist,
+                    tostring(ok and res and res.code or res))
+
+                local arrival_msg = "A " .. tostring(se.player_id) .. " squad has arrived nearby and is hunting you!"
+                xpda.send("Incoming Threat", arrival_msg)
+                if news_manager and news_manager.send_tip then
+                    news_manager.send_tip(db.actor, arrival_msg, nil, nil, 8000)
+                end
+                if printf then
+                    printf("[APS] A %s squad has arrived and is closing in!", tostring(se.player_id))
+                end
+            else
+                --- Already locked on player — just log distance, don't re-script
+                --- (re-scripting causes release which lets SISKI reclaim)
+                _aps_log.info("[WEALTHY_ROB] TRACKING: sq=%d faction=%s dist=%.0fm online=%s",
+                    squad_id, tostring(se.player_id), dist, tostring(se.online))
+            end
+        end
+
+        ::next::
+    end
+end
+
+
+--- Cleanup dead/expired rumor squads
+local function _cleanup_rumor_squads()
+    for squad_id, data in pairs(_rumor_squads) do
+        local se = alife() and alife():object(squad_id)
+        if not se then
+            _aps_log.info("[WEALTHY_ROB] CLEANUP: sq=%d removed (dead/despawned)", squad_id)
+            _rumor_squads[squad_id] = nil
+        elseif os.clock() - data.dispatched_at > 3600 then
+            --- Expire after 60 real minutes
+            _aps_log.info("[WEALTHY_ROB] CLEANUP: sq=%d removed (expired after 60min)", squad_id)
+            _rumor_squads[squad_id] = nil
+        end
+    end
+end
+
+function on_game_start()
+    cfg = aps_mcm.cfg
+    _rumor_squads = {}
+    _last_player_level = nil
+    _first_eval = true
+    _last_dispatch_time = 0
+    _last_retry_game_sec = nil
+    chase_opts.cfg = cfg
+    ap_utils.chase_register(chase_opts)
+    ap_consumer.register(CONSEQUENCE.WEALTHY_ROB, {
+        event = CAUSE.WEALTHY,
+        priority = 10,
+        condition = function() return cfg.consequence_wealthy_rob_enabled end,
+    }, _handler)
+    _aps_log.info("[CONSEQUENCE.WEALTHY_ROB] Initialized (local + cross-level rumor)")
+
+    --- Use actor_on_update directly with clock-based retry
+    --- No CreateTimeEvent — that doesn't work reliably from callbacks
+    local _next_retry_at = 0
+    local _next_rumor_at = 0
+
+    RegisterScriptCallback("actor_on_update", function()
+        local actor = db.actor
+        if not actor then return end
+
+        local now = time_global() or 0
+
+        --- Rumor squad tracker (every 30 real seconds)
+        if now > _next_rumor_at then
+            _next_rumor_at = now + 30000
+            local rok, rerr = pcall(_retarget_rumor_squads)
+            if not rok then
+                _aps_log.info("[WEALTHY_ROB] RETARGET_ERROR: %s", tostring(rerr))
+            end
+            local cok, cerr = pcall(_cleanup_rumor_squads)
+            if not cok then
+                _aps_log.info("[WEALTHY_ROB] CLEANUP_ERROR: %s", tostring(cerr))
+            end
+        end
+
+        --- Robbery retry (first at 15s, then every 5 game-minutes via game_sec)
+        if now < _next_retry_at then return end
+        _next_retry_at = now + 15000 --- check every 15 real seconds
+
+        local ok, err = pcall(function()
+            if not cfg or not cfg.consequence_wealthy_rob_enabled then return end
+
+            --- Only evaluate every 300 GAME seconds (first check fires immediately)
+            local game_now = xtime and xtime.game_sec and xtime.game_sec() or 0
+            if _last_retry_game_sec and game_now - _last_retry_game_sec < 300 then return end
+            _last_retry_game_sec = game_now
+
+            _aps_log.info("[WEALTHY_ROB] RETRY_TIMER_TICK (game_sec=%d)", game_now)
+
+            local base_ok, base_smart = pcall(xsmart.get_actor_smart)
+            if base_ok and base_smart and xsmart.is_base(base_smart) then
+                _aps_log.info("[WEALTHY_ROB] RETRY_SKIP: at base smart=%s", tostring(base_smart:name()))
+                return
+            end
+
+            local score = aps_wealth.score_actor()
+            if not score or score < (cfg.cause_wealthy_threshold or 40) then
+                _aps_log.info("[WEALTHY_ROB] RETRY_SKIP: wealth=%d below threshold=%d", score or 0, cfg.cause_wealthy_threshold or 40)
+                return
+            end
+
+            _aps_log.info("[WEALTHY_ROB] === RETRY_EVAL === wealth=%d (calling handler)", score)
+
+            _handler({
+                wealth_score = score,
+                target_is_player = true,
+                position = actor:position(),
+                level_id = xlevel.get_actor_level_id(),
+                _trace = ap_debug and ap_debug.trace and ap_debug.trace() or nil,
+            })
+        end)
+
+        if not ok then
+            _aps_log.info("[WEALTHY_ROB] RETRY_ERROR: %s", tostring(err))
+        end
+    end)
+end

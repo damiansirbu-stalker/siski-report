@@ -1,0 +1,1147 @@
+--[[
+Copyright (C) 2013 Alundaio
+This work is licensed under a Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License
+
+- Modified by Tronex
+- 2019/6/23
+- NPCs transfer items they sell to trader if found
+- NPCs can upgrade their weapons at mechanics
+
+--]]
+
+local ini
+local enable_debug = false
+
+local enable_npc_trade = true
+local enable_npc_upgrade = true
+local max_upgrades_per_visit = 5
+local DEBUG_PREFIX = "[SISKI][AXR_TRADE] "
+local SISKI_AXR_PATCH_REV = "2026-03-11-r6-self-spawn-guard"
+local SISKI_AXR_BIND_DIAG = {
+	next_tg = 0,
+}
+local SISKI_AXR_RUNTIME = {
+	started = false,
+}
+local SISKI_MECHANIC_BONUS_ALLOWLIST = {
+	gun_oil = true,
+	gun_oil_ru_d = true,
+	gun_oil_ru = true,
+	solvent = true,
+	glue_b = true,
+	glue_a = true,
+	glue_e = true,
+}
+
+local siski_npc_has_items_to_sell
+local siski_trade_job_sell_items
+local siski_trade_job_give_id
+local siski_npc_trade_buy_sell_impl
+local log_always
+local print_debug
+local print_trade_event
+
+local no_trade_comm = {
+	["zombied"] = true,
+	["army"] = true,
+	["monolith"] = true,
+	["greh"] = true,
+	["isg"] = true,
+}
+
+local SISKI_AXR_BUY_ALL_CACHE = {
+	next_tg = 0,
+	value = true,
+	ltx = nil,
+	last_logged_value = nil,
+	last_logged_source = nil,
+}
+
+local function begin_item_take_suppress(npc, reason)
+	if not (npc and type(npc.id) == "function") then
+		return nil
+	end
+	local id = npc:id()
+	local st = id and db.storage[id]
+	if not st then
+		return nil
+	end
+	st.siski_axr_item_take_suppress = (tonumber(st.siski_axr_item_take_suppress) or 0) + 1
+	st.siski_axr_item_take_suppress_reason = reason
+	st.siski_axr_item_take_suppress_tg = (time_global and time_global()) or 0
+	return st
+end
+
+local function end_item_take_suppress(st)
+	if not st then
+		return
+	end
+	local count = (tonumber(st.siski_axr_item_take_suppress) or 1) - 1
+	if count > 0 then
+		st.siski_axr_item_take_suppress = count
+		return
+	end
+	st.siski_axr_item_take_suppress = nil
+	st.siski_axr_item_take_suppress_reason = nil
+	st.siski_axr_item_take_suppress_tg = nil
+end
+
+local function is_item_take_suppressed(npc)
+	if not (npc and type(npc.id) == "function") then
+		return false
+	end
+	local id = npc:id()
+	local st = id and db.storage[id]
+	return st and (tonumber(st.siski_axr_item_take_suppress) or 0) > 0 or false
+end
+
+local function create_item_self_suppressed(section, npc, reason)
+	local st = begin_item_take_suppress(npc, reason)
+	local ok, res = pcall(alife_create_item, section, npc)
+	end_item_take_suppress(st)
+	if not ok then
+		print_debug("create_item_self_suppressed_failed npc=%s sec=%s reason=%s",
+			npc and npc:name() or "nil", tostring(section), tostring(reason))
+		return nil
+	end
+	return res
+end
+
+local function parse_bool(v)
+	if type(v) == "boolean" then
+		return v
+	end
+	if type(v) == "number" then
+		if v == 0 then return false end
+		if v == 1 then return true end
+		return nil
+	end
+	if type(v) == "string" then
+		local s = string.lower(v)
+		if s == "true" or s == "1" or s == "yes" or s == "on" then return true end
+		if s == "false" or s == "0" or s == "no" or s == "off" then return false end
+	end
+	return nil
+end
+
+local function read_siski_buy_all_from_ltx()
+	if not SISKI_AXR_BUY_ALL_CACHE.ltx and ini_file then
+		local ok_ini, ltx = pcall(function() return ini_file("siski_settings.ltx") end)
+		if ok_ini then
+			SISKI_AXR_BUY_ALL_CACHE.ltx = ltx
+		end
+	end
+	local ltx = SISKI_AXR_BUY_ALL_CACHE.ltx
+	if not ltx then
+		return nil
+	end
+	local ok_has, has = pcall(function() return ltx:line_exist("siski", "trade_axr_buy_all_enabled") end)
+	if not (ok_has and has) then
+		return nil
+	end
+	local ok_val, raw = pcall(function() return ltx:r_string("siski", "trade_axr_buy_all_enabled") end)
+	if not ok_val then
+		return nil
+	end
+	return parse_bool(raw)
+end
+
+local function get_siski_buy_all_enabled()
+	local now = (time_global and time_global()) or 0
+	if now < (tonumber(SISKI_AXR_BUY_ALL_CACHE.next_tg) or 0) then
+		return SISKI_AXR_BUY_ALL_CACHE.value == true
+	end
+
+	local value = nil
+	local source = "default"
+	if ui_mcm and ui_mcm.get then
+		local ok_mcm, raw = pcall(function() return ui_mcm.get("siski/trade_axr_buy_all_enabled") end)
+		if ok_mcm then
+			value = parse_bool(raw)
+			if value ~= nil then
+				source = "mcm"
+			end
+		end
+	end
+	if value == nil then
+		value = read_siski_buy_all_from_ltx()
+		if value ~= nil then
+			source = "ltx"
+		end
+	end
+	if value == nil then
+		value = true
+		source = "default_true"
+	end
+
+	SISKI_AXR_BUY_ALL_CACHE.value = value == true
+	SISKI_AXR_BUY_ALL_CACHE.next_tg = now + 750
+	if SISKI_AXR_BUY_ALL_CACHE.last_logged_value ~= SISKI_AXR_BUY_ALL_CACHE.value
+		or SISKI_AXR_BUY_ALL_CACHE.last_logged_source ~= source then
+		log_always("buy_all_toggle source=%s value=%s", tostring(source), tostring(SISKI_AXR_BUY_ALL_CACHE.value))
+		print_debug("buy_all_toggle source=%s value=%s", tostring(source), tostring(SISKI_AXR_BUY_ALL_CACHE.value))
+		SISKI_AXR_BUY_ALL_CACHE.last_logged_value = SISKI_AXR_BUY_ALL_CACHE.value
+		SISKI_AXR_BUY_ALL_CACHE.last_logged_source = source
+	end
+	return SISKI_AXR_BUY_ALL_CACHE.value
+end
+
+local function pick_random_buy_candidate(valid_items, item_list, money, bw_ammos, buy_all_enabled, last_buy_sec, stats)
+	local preferred = {}
+	local ammo_fallback = {}
+	local diag = {
+		preferred_count = 0,
+		ammo_count = 0,
+		preferred_example = nil,
+		ammo_example = nil,
+	}
+
+	for sec in pairs(valid_items) do
+		local buy_sell = ini:r_string_ex("buy_sell", sec)
+		if buy_sell and buy_sell ~= "" then
+			buy_sell = str_explode(buy_sell, ",")
+
+			local target = tonumber(buy_sell[3]) or 0
+			local have = item_list[sec] or 0
+			local need = target - have
+			local is_ammo = IsItem("ammo", sec) or (bw_ammos and bw_ammos[sec])
+			local allow_buy = buy_all_enabled or is_ammo
+
+			if not allow_buy then
+				stats.buy_blocked_policy = stats.buy_blocked_policy + 1
+			elseif need <= 0 then
+				if have > target then
+					stats.buy_blocked_stock = stats.buy_blocked_stock + 1
+				end
+			else
+				local itm_base_cost = ini_sys:r_float_ex(sec, "cost") or 30
+				local total_cost = math.floor(itm_base_cost * ((tonumber(buy_sell[5]) or 1)))
+
+				if money >= total_cost then
+					local candidate = {
+						sec = sec,
+						cost = total_cost,
+						have = have,
+						target = target,
+						is_ammo = is_ammo and true or false,
+					}
+
+					if buy_all_enabled and candidate.is_ammo then
+						ammo_fallback[#ammo_fallback + 1] = candidate
+						diag.ammo_count = diag.ammo_count + 1
+						if not diag.ammo_example then
+							diag.ammo_example = candidate.sec
+						end
+					else
+						preferred[#preferred + 1] = candidate
+						diag.preferred_count = diag.preferred_count + 1
+						if not diag.preferred_example then
+							diag.preferred_example = candidate.sec
+						end
+					end
+				else
+					stats.buy_blocked_money = stats.buy_blocked_money + 1
+				end
+			end
+		end
+	end
+
+	local pool = preferred
+	local phase = buy_all_enabled and "non_ammo" or "ammo_only"
+	if buy_all_enabled and #pool == 0 then
+		pool = ammo_fallback
+		phase = "ammo_fallback"
+	end
+	if #pool == 0 then
+		diag.phase = phase
+		diag.pool_count = 0
+		return nil, phase, diag
+	end
+
+	if last_buy_sec and #pool > 1 then
+		local alt = {}
+		for i = 1, #pool do
+			if pool[i].sec ~= last_buy_sec then
+				alt[#alt + 1] = pool[i]
+			end
+		end
+		if #alt > 0 then
+			pool = alt
+		end
+	end
+
+	diag.phase = phase
+	diag.pool_count = #pool
+	return pool[math.random(#pool)], phase, diag
+end
+
+local function pick_random_mechanic_bonus_candidate()
+	local valid_items = utils_data.collect_section(ini, "buy_sell_mechanic", true)
+	if not valid_items then
+		return nil, "no_section", { pool_count = 0 }
+	end
+
+	local pool = {}
+	for sec in pairs(valid_items) do
+		if SISKI_MECHANIC_BONUS_ALLOWLIST[sec] then
+			local buy_sell = ini:r_string_ex("buy_sell_mechanic", sec)
+			if buy_sell and buy_sell ~= "" then
+				buy_sell = str_explode(buy_sell, ",")
+
+				local itm_base_cost = ini_sys:r_float_ex(sec, "cost") or 30
+				local total_cost = math.floor(itm_base_cost * (tonumber(buy_sell[5]) or 1))
+				pool[#pool + 1] = {
+					sec = sec,
+					cost = total_cost,
+				}
+			end
+		end
+	end
+
+	if #pool == 0 then
+		return nil, "empty_pool", { pool_count = 0 }
+	end
+
+	return pool[math.random(#pool)], "ok", {
+		pool_count = #pool,
+		example = pool[1] and pool[1].sec or nil,
+	}
+end
+
+local function emit_prefixed_log(fmt, ...)
+	local argc = select("#", ...)
+	local text = ""
+	if argc > 0 then
+		local base = tostring(select(1, ...))
+		if argc > 1 then
+			local ok_fmt, formatted = pcall(string.format, ...)
+			text = ok_fmt and tostring(formatted) or base
+		else
+			text = base
+		end
+	end
+	text = DEBUG_PREFIX .. text
+	if type(printf) == "function" then
+		pcall(printf, "%s", text)
+	elseif type(log1) == "function" then
+		pcall(log1, text)
+	elseif type(Msg) == "function" then
+		pcall(Msg, text)
+	end
+end
+
+print_debug = function(...)
+	if enable_debug then
+		emit_prefixed_log(...)
+	end
+end
+
+log_always = function(...)
+	if enable_debug then
+		emit_prefixed_log(...)
+	end
+end
+
+print_trade_event = function(...)
+	if type(printf) == "function" then
+		local ok = pcall(printf, ...)
+		if ok then
+			return
+		end
+	end
+
+	local argc = select("#", ...)
+	local text = ""
+	if argc > 0 then
+		local fmt = tostring(select(1, ...))
+		if argc > 1 then
+			local ok_fmt, formatted = pcall(string.format, ...)
+			text = ok_fmt and tostring(formatted) or fmt
+		else
+			text = fmt
+		end
+	end
+
+	if type(log1) == "function" then
+		pcall(log1, text)
+	elseif type(Msg) == "function" then
+		pcall(Msg, text)
+	end
+end
+
+local function log_handler_binding_state(tag, force)
+	local now = (time_global and time_global()) or 0
+	if not force and now < (tonumber(SISKI_AXR_BIND_DIAG.next_tg) or 0) then
+		return
+	end
+	SISKI_AXR_BIND_DIAG.next_tg = now + 2000
+	log_always(
+		"binding tag=%s rev=%s sell_items_self=%s give_id_self=%s has_items_self=%s",
+		tostring(tag),
+		tostring(SISKI_AXR_PATCH_REV),
+		tostring(xr_effects and xr_effects.trade_job_sell_items == siski_trade_job_sell_items),
+		tostring(xr_effects and xr_effects.trade_job_give_id == siski_trade_job_give_id),
+		tostring(xr_conditions and xr_conditions.npc_has_items_to_sell == siski_npc_has_items_to_sell)
+	)
+end
+
+log_always("module_loaded rev=%s", tostring(SISKI_AXR_PATCH_REV))
+
+function init_settings()
+	ini = ini_file("items\\trade\\gulag_job_trade_buy_sell.ltx")
+	enable_npc_trade = ini:r_bool_ex("settings","enable_npc_trade",true)
+	enable_npc_upgrade = ini:r_bool_ex("settings","enable_npc_upgrade",true)
+	max_upgrades_per_visit = ini:r_float_ex("settings","max_upgrades_per_visit") or 5
+	log_always("boot rev=%s ini=items\\trade\\gulag_job_trade_buy_sell.ltx", tostring(SISKI_AXR_PATCH_REV))
+	print_debug("override_loaded R3A debug=%s npc_trade=%s npc_upgrade=%s max_upgrades_per_visit=%s",
+		tostring(enable_debug), tostring(enable_npc_trade), tostring(enable_npc_upgrade), tostring(max_upgrades_per_visit))
+end
+
+--------------------------------
+-- Callbacks
+--------------------------------
+local function npc_on_item_take(npc,item)
+	if is_item_take_suppressed(npc) then
+		return
+	end
+
+	if enable_npc_trade then
+		check_trade_item(npc,item)
+	end
+	
+	if enable_npc_upgrade then
+		check_tech_item(npc,item)
+	end
+end
+
+function on_game_start()
+	if SISKI_AXR_RUNTIME.started then
+		log_always("on_game_start duplicate_ignored rev=%s", tostring(SISKI_AXR_PATCH_REV))
+		return
+	end
+	SISKI_AXR_RUNTIME.started = true
+	RegisterScriptCallback("npc_on_item_take",npc_on_item_take)
+	init_settings()
+	print_debug("on_game_start R3A rev=%s", tostring(SISKI_AXR_PATCH_REV))
+	log_handler_binding_state("on_game_start", true)
+end
+
+
+--------------------------------
+-- Trade job
+--------------------------------
+function check_trade_item(npc,item)
+	if not (npc:alive()) then
+		return
+	end
+
+	local id = npc:id()
+	local st = db.storage[id]
+	if not (st) then
+		return
+	end
+
+	local com = npc:character_community()
+	if no_trade_comm[com] then
+		return false
+	end
+
+	local sec = item:section()
+
+	local bw = npc:best_weapon() or npc:active_item()
+	if (bw and bw:id() == item:id()) then
+		return
+	end
+
+	local slot
+	for i=1,12 do
+		slot = npc:item_in_slot(i)
+		if (slot and slot:id() == item:id()) then
+			return
+		end
+	end
+
+	if (ini == nil or not ini:line_exist("buy_sell",sec)) then
+		return
+	end
+
+	local buy_sell = ini:r_string_ex("buy_sell",sec)
+	if (buy_sell == nil or buy_sell == "") then
+		return
+	end
+
+	if not (st.trade_items) then
+		st.trade_items = {}
+	end
+	st.trade_items[sec] = st.trade_items[sec] and st.trade_items[sec] + 1 or 1
+
+	buy_sell = str_explode(buy_sell,",")
+
+	--print_debug("buy_sell[2]=%s",buy_sell[2])
+	if (st.trade_items[sec] >= tonumber(buy_sell[2])) then
+		st.has_items_to_sell = true
+		--print_debug("%s: wants to trade surplus items",npc:name())
+	end
+end
+
+siski_npc_has_items_to_sell = function(actor,npc,p)
+	if not (npc) then
+		return false
+	end
+
+	local id = type(npc.id) == "function" and npc:id() or npc.id
+
+	local st = db.storage[id]
+	if not (st) then
+		return false
+	end
+
+	if not (st.has_items_to_sell) then
+		return false
+	end
+
+	local smart = p and p[1] and SIMBOARD.smarts_by_names[p[1]]
+	if (smart and smart.npc_info[id]) then
+		local job = smart.npc_info[id].job
+		if (job and job.idle and time_global() < job.idle) then
+			return false
+		end
+	end
+	
+	log_handler_binding_state("npc_has_items_to_sell", false)
+	print_debug("npc_has_items_to_sell | npc (%s) has item to sell", id)
+
+	return true
+end
+xr_conditions.npc_has_items_to_sell = siski_npc_has_items_to_sell
+
+siski_trade_job_sell_items = function(actor,npc,p)
+	log_always("trade_job_sell_items_enter rev=%s npc=%s id=%s", tostring(SISKI_AXR_PATCH_REV), npc and npc:name() or "nil", npc and npc:id() or "nil")
+	print_debug("trade_job_sell_items R3A rev=%s npc=%s id=%s", tostring(SISKI_AXR_PATCH_REV), npc and npc:name() or "nil", npc and npc:id() or "nil")
+	log_handler_binding_state("trade_job_sell_items", true)
+	siski_npc_trade_buy_sell_impl(npc)
+end
+xr_effects.trade_job_sell_items = siski_trade_job_sell_items
+
+siski_trade_job_give_id = function(actor,npc,p)
+	log_handler_binding_state("trade_job_give_id", false)
+	local board = SIMBOARD
+	local smart = p[1] and board and board.smarts_by_names[p[1]]
+	local id = smart and smart.npc_by_job_section["logic@"..p[2]]
+	local npc_info = id and smart.npc_info[id]
+	print_debug("- trade_job_give_id | smart=%s id=%s npc_info=%s job=%s",smart and smart:name(),id,npc_info ~= nil,npc_info and npc_info.job and npc_info.job.section)
+	if not (npc_info and npc_info.job) then
+		print_debug("- trade_job_give_id | return false")
+		return
+	end
+	print_debug("- trade_job_give_id | seller_id = %s - name: %s", npc:id(), npc:name())
+	npc_info.job.seller_id = npc:id()
+end
+xr_effects.trade_job_give_id = siski_trade_job_give_id
+
+siski_npc_trade_buy_sell_impl = function(npc)
+	local g_tonumber = tonumber
+	local id = npc and npc:id()
+	local st = id and db.storage[id]
+	log_always("npc_trade_buy_sell_enter rev=%s npc=%s id=%s", tostring(SISKI_AXR_PATCH_REV), npc and npc:name() or "nil", tostring(id))
+	if not (st) then
+		print_debug("trade_skip reason=no_storage npc_id=%s", tostring(id))
+		return
+	end
+
+	if not (st.has_items_to_sell) then
+		print_debug("trade_skip reason=has_items_to_sell_false npc_id=%s", tostring(id))
+		return
+	end
+
+	if not (st.trade_items) then
+		print_debug("trade_skip reason=no_trade_items npc_id=%s", tostring(id))
+		return
+	end
+
+	local smart = xr_gulag.get_npc_smart(npc)
+	local npc_info = smart and smart.npc_info[id]
+	if (npc_info) then
+		npc_info.job.idle = time_global() + 20000
+	end
+
+	print_trade_event("- NPC Trade | Selling")
+
+	local se_obj = alife_object(id)
+	if not (se_obj) then 
+		return 
+	end
+	
+	-- Get the Trader
+	local smart = xr_gulag.get_npc_smart(npc)
+	local npc_info = smart and smart.npc_info[id]
+	local seller_id = npc_info and npc_info.job and npc_info.job.seller_id
+	local seller = seller_id and (db.storage[seller_id] and db.storage[seller_id].object or level.object_by_id(seller_id))
+	print_trade_event("- NPC Trade | Trader = %s", seller and seller:name())
+	
+	-- SELL ITEMS
+	local itm,itm_base_cost,buy_sell, slot, bw,can_sell
+	for sec,count in pairs(st.trade_items) do
+		for i=count,1 do
+			itm = npc:object(sec)
+			if (itm) then
+				can_sell = true
+
+				-- Make sure item is not his best weapon
+				bw = npc:best_weapon()
+				if (bw and bw:id() == itm:id()) then
+					can_sell = false
+				end
+
+				-- Make sure item is not equipped
+				for i=1,12 do
+					slot = npc:item_in_slot(i)
+					if (slot and slot:id() == itm:id()) then
+						can_sell = false
+						break
+					end
+				end
+
+				buy_sell = ini:r_string_ex("buy_sell",sec)
+				if (buy_sell and buy_sell ~= "" and can_sell) then
+					buy_sell = str_explode(buy_sell,",")
+					
+					-- Transfer the item
+					if seller then
+						npc:transfer_item(itm, seller)
+					else
+						alife_release_id(itm:id())
+					end
+
+					-- Give money
+					itm_base_cost = ini_sys:r_float_ex(sec,"cost") or 30
+					local money = math.floor(itm_base_cost * (g_tonumber(buy_sell[4]) or 1))
+					npc:give_money(money)
+					
+					-- Increase NPC rank because he is a good boy
+					game_statistics.increment_npc_statistic(npc,"items_sold")
+					
+						print_trade_event("- NPC Trade | %s sold [%s] for %s RU", npc:name(), sec, money)
+
+					-- Only sell enough till reach keep-in-stock count (param 1)
+					if (i <= g_tonumber(buy_sell[1])) then
+						break
+					end
+				end
+			end
+		end
+	end
+	
+	empty_table(st.trade_items)
+	st.has_items_to_sell = false
+
+	-- BUY ITEMS
+	local money = npc:money()
+	if (money == nil or money <= 0) then
+		print_debug("buy_skip reason=no_money npc=%s id=%s money=%s", npc and npc:name() or "nil", tostring(id), tostring(money))
+		return
+	end
+
+	if not (smart) then
+		print_debug("buy_skip reason=no_smart npc=%s id=%s", npc and npc:name() or "nil", tostring(id))
+		return
+	end
+
+	if (npc_info == nil or npc_info.job == nil) then
+		print_debug("buy_skip reason=no_job_info npc=%s id=%s", npc and npc:name() or "nil", tostring(id))
+		return
+	end
+
+	if not (seller) then
+		print_debug("buy_skip reason=no_seller npc=%s id=%s", npc and npc:name() or "nil", tostring(id))
+		return
+	end
+
+	print_trade_event("- NPC Trade | Buying")
+
+	local valid_items = utils_data.collect_section(ini,"buy_sell",true)
+	local item_list = {}
+	local buy_all_enabled = get_siski_buy_all_enabled()
+	local buy_success = 0
+	local buy_blocked_policy = 0
+	local buy_blocked_money = 0
+	local buy_blocked_stock = 0
+	log_always("buy_start npc=%s id=%s smart=%s seller=%s money=%s buy_all=%s valid_items=%s",
+		npc and npc:name() or "nil",
+		tostring(id),
+		smart and smart:name() or "nil",
+		seller and seller:name() or "nil",
+		tostring(money),
+		tostring(buy_all_enabled),
+		tostring(valid_items and size_table and size_table(valid_items) or "nil"))
+	print_debug("buy_start npc=%s id=%s smart=%s seller=%s money=%s buy_all=%s",
+		npc and npc:name() or "nil",
+		tostring(id),
+		smart and smart:name() or "nil",
+		seller and seller:name() or "nil",
+		tostring(money),
+		tostring(buy_all_enabled))
+
+	local count = 0
+	local function itr(npc,itm)
+		local sec = itm:section()
+		if (sec and valid_items[sec]) then
+			-- count all valid items NPC has matching the buy_sell list
+			item_list[sec] = item_list[sec] and item_list[sec] + 1 or 1
+		end
+	end
+
+	npc:iterate_inventory(itr,npc)
+
+	local bw = npc:best_weapon()
+	bw = bw and bw:section()
+
+	local bw_ammos = bw and parse_list(ini_sys,bw,"ammo_class",true)
+	local buy_sell_items = {}
+	local size_t = 0
+	local last_buy_sec = nil
+	while money > 0 do
+		local stats = {
+			buy_blocked_policy = 0,
+			buy_blocked_money = 0,
+			buy_blocked_stock = 0,
+		}
+		local pick, phase, diag = pick_random_buy_candidate(valid_items, item_list, money, bw_ammos, buy_all_enabled, last_buy_sec, stats)
+
+		buy_blocked_policy = buy_blocked_policy + stats.buy_blocked_policy
+		buy_blocked_money = buy_blocked_money + stats.buy_blocked_money
+		buy_blocked_stock = buy_blocked_stock + stats.buy_blocked_stock
+		log_always("buy_pool npc=%s id=%s money=%s buy_all=%s phase=%s pool=%s non_ammo=%s ammo=%s blocked_policy=%s blocked_stock=%s blocked_money=%s preferred_example=%s ammo_example=%s last_buy=%s",
+			npc and npc:name() or "nil",
+			tostring(id),
+			tostring(money),
+			tostring(buy_all_enabled),
+			tostring(diag and diag.phase or phase),
+			tostring(diag and diag.pool_count or 0),
+			tostring(diag and diag.preferred_count or 0),
+			tostring(diag and diag.ammo_count or 0),
+			tostring(stats.buy_blocked_policy),
+			tostring(stats.buy_blocked_stock),
+			tostring(stats.buy_blocked_money),
+			tostring(diag and diag.preferred_example or "nil"),
+			tostring(diag and diag.ammo_example or "nil"),
+			tostring(last_buy_sec or "nil"))
+
+		if not pick then
+			break
+		end
+
+		size_t = size_t + 1
+		buy_sell_items[size_t] = pick.sec
+		create_item_self_suppressed(pick.sec, npc, "npc_trade_buy_sell")
+		npc:transfer_money(pick.cost, seller)
+			print_trade_event("- NPC Trade | %s bought [%s] for %s RU", npc:name(), pick.sec, pick.cost)
+		if buy_all_enabled and not pick.is_ammo then
+			log_always("buy_allow_non_ammo npc=%s sec=%s have=%s target=%s cost=%s phase=%s",
+				npc:name(), pick.sec, tostring(pick.have), tostring(pick.target), tostring(pick.cost), tostring(phase))
+		end
+		money = money - pick.cost
+		item_list[pick.sec] = (item_list[pick.sec] or 0) + 1
+		buy_success = buy_success + 1
+		last_buy_sec = pick.sec
+	end
+
+	if buy_success > 0 then
+		local bonus_pick, bonus_reason, bonus_diag = pick_random_mechanic_bonus_candidate()
+		if bonus_pick then
+			local bonus_charge = math.min(math.max(tonumber(money) or 0, 0), tonumber(bonus_pick.cost) or 0)
+			size_t = size_t + 1
+			buy_sell_items[size_t] = bonus_pick.sec
+			create_item_self_suppressed(bonus_pick.sec, npc, "npc_trade_bonus_mechanic")
+			if bonus_charge > 0 then
+				npc:transfer_money(bonus_charge, seller)
+				money = money - bonus_charge
+			end
+			buy_success = buy_success + 1
+			log_always("buy_bonus_mechanic npc=%s id=%s sec=%s full_cost=%s charged=%s money_left=%s pool=%s example=%s",
+				npc and npc:name() or "nil",
+				tostring(id),
+				tostring(bonus_pick.sec),
+				tostring(bonus_pick.cost),
+				tostring(bonus_charge),
+				tostring(money),
+				tostring(bonus_diag and bonus_diag.pool_count or 0),
+				tostring(bonus_diag and bonus_diag.example or "nil"))
+			print_trade_event("- NPC Trade | %s bonus-bought [%s] for %s RU", npc:name(), bonus_pick.sec, bonus_charge)
+		else
+			log_always("buy_bonus_mechanic_skip npc=%s id=%s reason=%s pool=%s",
+				npc and npc:name() or "nil",
+				tostring(id),
+				tostring(bonus_reason),
+				tostring(bonus_diag and bonus_diag.pool_count or 0))
+		end
+	end
+	
+	if (#buy_sell_items > 0) then 
+		if (dynamic_news_manager and ui_options.get("alife/dynamic_news/nearby_activity_news")) then 
+			dynamic_news_manager.get_dynamic_news():BoughtItems(npc,seller,buy_sell_items)
+		end
+	end
+	log_always("buy_done npc=%s id=%s bought=%s policy_blocked=%s stock_blocked=%s money_blocked=%s money_left=%s",
+		npc and npc:name() or "nil",
+		tostring(id),
+		tostring(buy_success),
+		tostring(buy_blocked_policy),
+		tostring(buy_blocked_stock),
+		tostring(buy_blocked_money),
+		tostring(money))
+	print_debug("buy_done npc=%s id=%s bought=%s policy_blocked=%s stock_blocked=%s money_blocked=%s money_left=%s",
+		npc and npc:name() or "nil",
+		tostring(id),
+		tostring(buy_success),
+		tostring(buy_blocked_policy),
+		tostring(buy_blocked_stock),
+		tostring(buy_blocked_money),
+		tostring(money))
+end
+
+npc_trade_buy_sell = siski_npc_trade_buy_sell_impl
+
+
+--------------------------------
+-- Upgrade job
+--------------------------------
+local function picked_unchecked(t,gr,ind)
+	return not (t[gr] and t[gr][ind])
+end
+local function picked_set(t,gr,ind)
+	if (not t[gr]) then t[gr] = {} end
+	t[gr][ind] = true
+end
+	
+function check_tech_item(npc,item)
+	if not (npc:alive()) then
+		return
+	end
+
+	local id = npc:id()
+	local st = db.storage[id]
+	if not (st) then
+		return
+	end
+
+	local com = npc:character_community()
+	if no_trade_comm[com] then
+		return false
+	end
+
+	local sec = item:section()
+
+	local bw = npc:best_weapon() or npc:active_item()
+	if (bw and bw:id() == item:id()) then
+		return
+	end
+
+	local slot
+	for i=1,12 do
+		slot = npc:item_in_slot(i)
+		if (slot and slot:id() == item:id()) then
+			return
+		end
+	end
+	
+	if not (bw and IsWeapon(bw) and not IsMelee(bw)) then
+		return
+	end
+
+	if (ini == nil or not ini:line_exist("buy_sell_mechanic",sec)) then
+		return
+	end
+
+	local buy_sell = ini:r_string_ex("buy_sell_mechanic",sec)
+	if (buy_sell == nil or buy_sell == "") then
+		return
+	end
+
+	if not (st.tech_items) then
+		st.tech_items = {}
+	end
+	st.tech_items[sec] = st.tech_items[sec] and st.tech_items[sec] + 1 or 1
+
+	buy_sell = str_explode(buy_sell,",")
+
+	--print_debug("buy_sell[2]=%s",buy_sell[2])
+	if (st.tech_items[sec] >= tonumber(buy_sell[2])) then
+		st.has_tech_items = true
+		--print_debug("%s: wants to trade surplus items",npc:name())
+	end
+end
+
+xr_conditions.npc_has_tech_items = function(actor,npc,p)
+	if not (npc) then
+		return false
+	end
+
+	local id = type(npc.id) == "function" and npc:id() or npc.id
+
+	local st = db.storage[id]
+	if not (st) then
+		return false
+	end
+
+	if not (st.has_tech_items) then
+		return false
+	end
+	
+	local obj = st and st.object or level.object_by_id(id)
+	if (not obj) then
+		print_debug("! npc_has_tech_items - no obj found for id (%s)", id)
+		return
+	end
+	
+	local bw = obj:best_weapon() or obj:active_item()
+	if not (bw and IsWeapon(bw) and not IsMelee(bw)) then
+		print_debug("! npc_has_tech_items - no best wpn")
+		return
+	end
+
+	local smart = p and p[1] and SIMBOARD.smarts_by_names[p[1]]
+	if (smart and smart.npc_info[id]) then
+		local job = smart.npc_info[id].job
+		if (job and job.idle and time_global() < job.idle) then
+			return false
+		end
+	end
+	
+	print_debug("npc_has_tech_items | npc (%s) has tech item", id)
+
+	return true
+end
+
+xr_effects.tech_job_upgrade_items = function(actor,npc,p)
+	npc_tech_upgrade_sell(npc)
+end
+
+xr_effects.tech_job_give_id = function(actor,npc,p)
+	local board = SIMBOARD
+	local smart = p[1] and board and board.smarts_by_names[p[1]]
+	local id = smart and smart.npc_by_job_section["logic@"..p[2]]
+	local npc_info = id and smart.npc_info[id]
+	print_debug("- tech_job_give_id | smart=%s id=%s npc_info=%s job=%s",smart and smart:name(),id,npc_info ~= nil,npc_info and npc_info.job and npc_info.job.section)
+	if not (npc_info and npc_info.job) then
+		print_debug("- tech_job_give_id | return false")
+		return
+	end
+	print_debug("- tech_job_give_id | mechanic_id = %s - name: %s", npc:id(), npc:name())
+	npc_info.job.mechanic_id = npc:id()
+end
+
+function npc_tech_upgrade_sell(npc)
+	local id = npc and npc:id()
+	local st = id and db.storage[id]
+	if not (st) then
+		return
+	end
+
+	if not (st.has_tech_items) then
+		--print_debug("st.has_tech_items = nil!")
+		return
+	end
+
+	if not (st.tech_items) then
+		--print_debug("no tech items to sell")
+		return
+	end
+
+	local smart = xr_gulag.get_npc_smart(npc)
+	local npc_info = smart and smart.npc_info[id]
+	if (npc_info) then
+		npc_info.job.idle = time_global() + 20000
+	end
+
+	print_debug("- NPC Tech | Selling")
+
+	local se_obj = alife_object(id)
+	if not (se_obj) then 
+		return 
+	end
+	
+	-- Get the Trader
+	local smart = xr_gulag.get_npc_smart(npc)
+	local npc_info = smart and smart.npc_info[id]
+	local mechanic_id = npc_info and npc_info.job and npc_info.job.mechanic_id
+	local mechanic = mechanic_id and (db.storage[mechanic_id] and db.storage[mechanic_id].object or level.object_by_id(mechanic_id))
+	print_debug("- NPC Tech | Mechanic = %s", mechanic and mechanic:name())
+	
+	-- SELL ITEMS
+	local itm,itm_base_cost,buy_sell, slot, bw,can_sell
+	for sec,count in pairs(st.tech_items) do
+		for i=count,1 do
+			itm = npc:object(sec)
+			if (itm) then
+				can_sell = true
+
+				-- Make sure item is not his best weapon
+				bw = npc:best_weapon()
+				if (bw and bw:id() == itm:id()) then
+					can_sell = false
+				end
+
+				-- Make sure item is not equipped
+				for i=1,12 do
+					slot = npc:item_in_slot(i)
+					if (slot and slot:id() == itm:id()) then
+						can_sell = false
+						break
+					end
+				end
+
+				buy_sell = ini:r_string_ex("buy_sell_mechanic",sec)
+				if (buy_sell and buy_sell ~= "" and can_sell) then
+					buy_sell = str_explode(buy_sell,",")
+					
+					-- Transfer the item
+					if mechanic then
+						npc:transfer_item(itm, mechanic)
+					else
+						alife_release_id(itm:id())
+					end
+
+					-- Give money
+					itm_base_cost = ini_sys:r_float_ex(sec,"cost") or 30
+					local money = math.floor(itm_base_cost * (tonumber(buy_sell[4]) or 1))
+					npc:give_money(money)
+					
+					-- Increase NPC rank because he is a good boy
+					game_statistics.increment_npc_statistic(npc,"items_sold")
+					
+					print_debug("- NPC Tech | %s sold [%s] for %s RU", npc:name(), sec, money)
+
+					-- Only sell enough till reach keep-in-stock count (param 1)
+					if (i <= tonumber(buy_sell[1])) then
+						break
+					end
+				end
+			else
+				print_debug("! NPC Tech | no item [%s] found for npc %s", sec, npc:name())
+			end
+		end
+	end
+	
+	empty_table(st.tech_items)
+	st.has_tech_items = false
+
+	-- Upgrade
+	local money = npc:money()
+	if (money == nil or money <= 0) then
+		return
+	end
+
+	if not (smart) then
+		return
+	end
+
+	if (npc_info == nil or npc_info.job == nil) then
+		return
+	end
+
+	if not (mechanic) then
+		return
+	end
+	
+	local wpn = npc:best_weapon()
+	if not (wpn and IsWeapon(wpn) and not IsMelee(wpn)) then
+		return
+	end
+	
+	local sec_wpn = wpn:section()
+	print_debug("- NPC Tech | Upgrading weapons [%s]", sec_wpn)
+	
+	-- Upgrades calculating
+	local picked = {}
+	local upgrades = utils_item.get_upgrades_tree(sec_wpn)
+	if not (upgrades and size_table(upgrades) > 0) then
+		printf("warning: axr_trade_manager.npc_tech_upgrade_sell(): no upgrades found for [%s]", sec_wpn)
+		return
+	end
+	local installed = utils_item.get_upgrades_installed(wpn, nil, true)
+	
+	local opposite = {
+			[1] = 2,
+			[2] = 1,
+			[3] = 4,
+			[4] = 3,
+			[5] = 6,
+			[6] = 5,
+	}
+	local money_before = money
+	local functor = function(t,a,b) return a < b end
+	local cnt = 0
+	
+	for gr,v in spairs(upgrades,functor) do
+		for ind,v2 in spairs(v,functor) do
+			if installed[v2.section] then
+				picked_set(picked, gr, ind)
+			end
+		end
+	end
+	
+	while (cnt < max_upgrades_per_visit) and (money > 500) do
+		local gr = random_key_table(upgrades)
+		for ind, v in spairs(upgrades[gr],functor) do
+			local section = v.section
+			local cost = v.stats_cost or 2000
+			
+			if upgrades[gr][ind].prop
+			and (upgrades[gr][ind].prop[1] ~= "prop_not_available")
+			and picked_unchecked(picked, gr, ind)
+			and (not installed[section])
+			then
+				if (not upgrades[gr][opposite[ind]])
+				or (upgrades[gr][opposite[ind]] and picked_unchecked(picked, gr, opposite[ind]))
+				then
+					picked_set(picked, gr, ind)
+					money = money - cost
+					print_debug("/ NPC Tech | %s installed upgrade [%s] for %s RU", npc:name(), section, cost)
+					break
+				end
+			end
+		end
+		cnt = cnt + 1
+	end
+	money = money > 100 and money or math.random(100,200)
+	
+	local to_install = {}
+	local new_install = {}
+	for gr,v in spairs(upgrades,functor) do
+		for ind,v2 in spairs(v,functor) do
+			if (picked[gr] and picked[gr][ind]) then
+				to_install[#to_install + 1] = v2.section
+				new_install[#new_install + 1] = v2.section
+				print_debug("- NPC Tech | upgrade [%s] is new", v2.section)
+			elseif installed[v2.section] then
+				to_install[#to_install + 1] = v2.section
+				print_debug("~ NPC Tech | upgrade [%s] is old", v2.section)
+			end
+		end
+	end
+	
+	if (#to_install <= #installed) then
+		print_debug("! NPC Tech | no new upgrades are picked")
+		return
+	end
+	
+	-- Consume NPC money
+	npc:give_money(money - money_before)
+	print_debug("/ NPC Tech | money taken: %s", money - money_before)
+	
+	-- Install upgrades
+	inventory_upgrades.force_upgrade = true
+	for i=1,#new_install do
+		wpn:install_upgrade(new_install[i])
+	end
+	inventory_upgrades.force_upgrade = false
+
+	
+	-- Send news
+	if (#new_install > 0) then 
+		if (dynamic_news_manager and ui_options.get("alife/dynamic_news/nearby_activity_news")) then
+			dynamic_news_manager.get_dynamic_news():UpgradedItems(npc, mechanic, sec_wpn, new_install)
+		end
+	end
+end

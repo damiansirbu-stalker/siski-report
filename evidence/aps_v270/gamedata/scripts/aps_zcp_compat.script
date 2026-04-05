@@ -1,0 +1,130 @@
+--- aps_zcp_compat: ZCP (Zone Control Project) compatibility layer
+--- Detects ZCP settings and adjusts behavior to prevent conflicts.
+---
+--- ZCP CONFLICT ANALYSIS:
+---
+--- ZCP replaces three core engine files:
+---   smart_terrain.script - ZCP injects smr_pop.smart_can_respawn() into try_respawn
+---   sim_board.script - ZCP hooks squad creation with population factors
+---   sim_squad_scripted.script - ZCP version, but scripted_target works identically
+---
+--- How this causes problems:
+---   1. ZCP's stalker_pop_factor can be < 1.0, reducing max_respawn_count.
+---      Fewer squads spawn -> fewer squads for SISKI and AP to work with.
+---      Combined with SISKI sending squads off-level, maps become empty.
+---
+---   2. ZCP's smart_can_respawn gates respawning with its own respawn_idle timer.
+---      AP's ap_smart_mutator.set_faction_controlled assumes vanilla try_respawn
+---      behavior. ZCP's timer can delay conquered territory respawns.
+---
+---   3. ZCP's adjust_squad_size and remove_disabled_mutants_from_squad modify
+---      squads after creation. SISKI's board_index may cache pre-modification state.
+---
+--- What this compat layer does:
+---   - Reads ZCP's population factors and adjusts AP consequence squad counts
+---   - Raises the population safeguard threshold when ZCP factors are low
+---   - Logs warnings when ZCP settings are likely to cause problems
+---   - Does NOT modify ZCP's files (we work around, not override)
+
+local type, tostring, pcall = type, tostring, pcall
+local RegisterScriptCallback = RegisterScriptCallback
+
+local CALLBACK = ap_const.CALLBACK
+
+local _zcp_present = false
+local _stalker_pop_factor = 1.0
+local _monster_pop_factor = 1.0
+local _respawns_disabled = false
+
+-- ============================================================================
+-- Public API
+-- ============================================================================
+
+--- Check if ZCP is active
+function is_present()
+    return _zcp_present
+end
+
+--- Get ZCP stalker population factor (1.0 = vanilla, <1.0 = reduced)
+function get_stalker_factor()
+    return _stalker_pop_factor
+end
+
+--- Get ZCP monster population factor
+function get_monster_factor()
+    return _monster_pop_factor
+end
+
+--- Are ZCP respawns disabled entirely?
+function are_respawns_disabled()
+    return _respawns_disabled
+end
+
+--- Get a consequence squad count adjusted for ZCP's population factor.
+--- When ZCP reduces population, we should also reduce the number of squads
+--- we pull away for consequences (otherwise we're taking a bigger percentage).
+--- @param base_count number MCM default max_squads
+--- @return number Adjusted count (minimum 1)
+function adjust_squad_count(base_count)
+    if not _zcp_present then return base_count end
+    if _stalker_pop_factor >= 0.8 then return base_count end
+    --- Scale down: at 0.5 factor, halve our squad usage
+    local adjusted = math.max(1, math.floor(base_count * _stalker_pop_factor + 0.5))
+    return adjusted
+end
+
+-- ============================================================================
+-- ZCP detection and config reading
+-- ============================================================================
+
+local function _read_zcp_config()
+    _zcp_present = _aps_deps.is_zcp_present()
+    if not _zcp_present then return end
+
+    --- Read population factors
+    local smr_pop = _G.smr_pop
+    if smr_pop then
+        if type(smr_pop.get_stalker_pop_factor) == "function" then
+            local ok, val = pcall(smr_pop.get_stalker_pop_factor)
+            if ok and type(val) == "number" then _stalker_pop_factor = val end
+        end
+        if type(smr_pop.get_monster_pop_factor) == "function" then
+            local ok, val = pcall(smr_pop.get_monster_pop_factor)
+            if ok and type(val) == "number" then _monster_pop_factor = val end
+        end
+    end
+
+    --- Check if respawns are disabled via MCM
+    local smr_amain = _G.smr_amain_mcm
+    if smr_amain and type(smr_amain.get_config) == "function" then
+        local ok, idle = pcall(smr_amain.get_config, "respawn_idle")
+        if ok and idle == -1 then _respawns_disabled = true end
+    end
+
+    --- Log warnings
+    if _stalker_pop_factor < 0.5 then
+        ap_debug.warn("[APS.ZCP] WARNING: stalker_pop_factor=%.2f is very low. Maps will feel empty. Consider raising it to 0.6+ in ZCP MCM.", _stalker_pop_factor)
+    end
+    if _monster_pop_factor < 0.3 then
+        ap_debug.warn("[APS.ZCP] WARNING: monster_pop_factor=%.2f is very low. Predator alert system may rarely trigger.", _monster_pop_factor)
+    end
+    if _respawns_disabled then
+        ap_debug.warn("[APS.ZCP] WARNING: ZCP respawns are DISABLED (respawn_idle=-1). The Zone will depopulate over time. AP conquest and SISKI dynamic bases won't refill.")
+    end
+
+    _aps_log.info("[APS.ZCP] Config: stalker=%.2f monster=%.2f respawns=%s",
+        _stalker_pop_factor, _monster_pop_factor, _respawns_disabled and "DISABLED" or "active")
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+function on_game_start()
+    _zcp_present = false
+    _stalker_pop_factor = 1.0
+    _monster_pop_factor = 1.0
+    _respawns_disabled = false
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, _read_zcp_config)
+    _aps_log.info("[APS.ZCP] Initialized (detection pending)")
+end

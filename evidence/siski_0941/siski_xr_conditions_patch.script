@@ -1,0 +1,100 @@
+siski = siski or {}
+
+local type = _G.type
+local pcall = _G.pcall
+local rawget = _G.rawget
+local tostring = _G.tostring
+local string = _G.string
+
+local Patch = {
+    RUNTIME = {
+        patched = false,
+        originals = {},
+    }
+}
+
+local function log_info(fmt, ...)
+    if siski.log and siski.log.info then
+        siski.log.info("XR_COND_PATCH", fmt, ...)
+    end
+end
+
+local function safe_call_string_method(obj, method_name)
+    if not obj then
+        return nil
+    end
+    local fn = obj[method_name]
+    if type(fn) ~= "function" then
+        return nil
+    end
+    local ok, value = pcall(fn, obj)
+    if not ok or type(value) ~= "string" or value == "" then
+        return nil
+    end
+    return value
+end
+
+local function matches_role_seed(obj, role)
+    if type(role) ~= "string" or role == "" then
+        return false
+    end
+    local pattern = "sim_default_%a+_" .. role
+    local name = safe_call_string_method(obj, "name")
+    if name and string.find(name, pattern) then
+        return true
+    end
+    local profile = safe_call_string_method(obj, "profile_name")
+    if profile and string.find(profile, pattern) then
+        return true
+    end
+    return false
+end
+
+local function wrap_role_check(fn_name, role)
+    local original = rawget(_G, fn_name)
+    if type(original) ~= "function" then
+        return false
+    end
+    if Patch.RUNTIME.originals[fn_name] then
+        return true
+    end
+
+    Patch.RUNTIME.originals[fn_name] = original
+    _G[fn_name] = function(actor, npc, p)
+        local ok, result = pcall(original, actor, npc, p)
+        if ok and result == true then
+            return true
+        end
+        return matches_role_seed(npc, role)
+    end
+    return true
+end
+
+function Patch.apply()
+    if Patch.RUNTIME.patched == true then
+        return true
+    end
+
+    local wrapped = 0
+    if wrap_role_check("check_npc_trader", "trader") then
+        wrapped = wrapped + 1
+    end
+    if wrap_role_check("check_npc_mechanic", "mechanic") then
+        wrapped = wrapped + 1
+    end
+    if wrap_role_check("check_npc_medic", "medic") then
+        wrapped = wrapped + 1
+    end
+    if wrap_role_check("check_npc_barman", "barman") then
+        wrapped = wrapped + 1
+    end
+
+    Patch.RUNTIME.patched = wrapped > 0
+    if Patch.RUNTIME.patched then
+        log_info("applied role_checks=%s", tostring(wrapped))
+    end
+    return Patch.RUNTIME.patched
+end
+
+Patch.apply()
+siski.xr_conditions_patch = Patch

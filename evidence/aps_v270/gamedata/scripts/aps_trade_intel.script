@@ -1,0 +1,149 @@
+--- aps_trade_intel: Trade route intelligence
+---
+--- Enriches AP's needs:supply consequence with SISKI's trader visit data.
+--- AP sends stalkers to the nearest trader. SISKI's siski_fast_trading tracks
+--- which traders have been visited recently. We provide a smart filter that
+--- biases find_smart toward unvisited traders, creating natural route distribution.
+---
+--- HOW IT WORKS:
+--- 1. On cause:needs with need="supply", we subscribe via xbus
+--- 2. Before AP's consequence runs find_smart, we check if SISKI has
+---    recent visit data for nearby traders
+--- 3. We publish a "trade_hint" event with the recommended trader
+--- 4. The hint is advisory — AP's consequence still makes the final decision
+---
+--- Also provides a public API that AP consequences can query directly:
+---   aps_trade_intel.get_unvisited_trader(position, level_id)
+
+local type, tostring, pcall, pairs = type, tostring, pcall, pairs
+local RegisterScriptCallback = RegisterScriptCallback
+
+local CALLBACK = ap_const.CALLBACK
+local RECENT_VISIT_MS = _aps_const.TRADE_INTEL_RECENT_VISIT_MS
+
+local _fast_trading = nil
+
+-- ============================================================================
+-- SISKI fast_trading detection
+-- ============================================================================
+
+local function _detect_fast_trading()
+    local s = _G.siski
+    if not s then return nil end
+    if s.fast_trading and type(s.fast_trading) == "table" then
+        return s.fast_trading
+    end
+    return nil
+end
+
+-- ============================================================================
+-- Public API
+-- ============================================================================
+
+--- Check if a specific trader smart has been visited recently
+--- @param smart_name string Smart terrain name
+--- @return boolean true if visited within RECENT_VISIT_MS
+function is_recently_visited(smart_name)
+    if not _fast_trading then return false end
+
+    --- SISKI fast_trading tracks pending triggers and visit state
+    --- We check if there's recent activity for this smart
+    if type(_fast_trading.is_smart_recently_traded) == "function" then
+        local ok, result = pcall(_fast_trading.is_smart_recently_traded, smart_name)
+        if ok then return result == true end
+    end
+
+    return false
+end
+
+--- Create a smart filter function that deprioritizes recently visited traders.
+--- Use with AP's find_smart: opts.filter = aps_trade_intel.make_fresh_trader_filter()
+--- @return function Smart terrain filter
+function make_fresh_trader_filter()
+    if not _fast_trading then
+        --- No SISKI data: accept all traders
+        return function(smart)
+            return xsmart.has_trader_job(smart)
+        end
+    end
+
+    --- Two-pass filter: first try unvisited traders, then fall back to any trader
+    local _tried_fresh = false
+    local _fresh_found = false
+
+    return function(smart)
+        if not xsmart.has_trader_job(smart) then return false end
+
+        local name = smart:name()
+        if not name then return true end
+
+        local recently_visited = is_recently_visited(name)
+        if not recently_visited then
+            _fresh_found = true
+            return true
+        end
+
+        --- Accept recently visited traders only if we haven't found fresh ones
+        return not _fresh_found
+    end
+end
+
+--- Get trader visit statistics for a level
+--- @param level_id number Level to check
+--- @return table { total_traders, recently_visited, fresh }
+function get_trade_stats(level_id)
+    local stats = { total_traders = 0, recently_visited = 0, fresh = 0 }
+
+    --- Query SISKI config for trade smarts on this level
+    local cfg = _G.siski and _G.siski.config
+    if not cfg then return stats end
+
+    --- Count traders via smart terrain iteration
+    if xsmart and xsmart.find_smart then
+        --- Simple count: we don't have a level->trader mapping without SISKI config
+        --- Just return what we can measure
+        stats.total_traders = -1
+    end
+
+    return stats
+end
+
+-- ============================================================================
+-- Event listener: enrich needs:supply with trade hints
+-- ============================================================================
+
+local function _on_needs_event(event_data)
+    if type(event_data) ~= "table" then return end
+    if event_data.need ~= "supply" then return end
+
+    --- Attach trade hint to the event data (AP consequence can read it)
+    if _fast_trading then
+        event_data._aps_trade_hint = {
+            has_intel = true,
+            filter_fn = make_fresh_trader_filter,
+        }
+        ap_debug.debug("[APS.TRADE_INTEL] enriched needs:supply event for squad=%s",
+            tostring(event_data.squad_id))
+    end
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+local function _subscribe()
+    _fast_trading = _detect_fast_trading()
+
+    if _fast_trading then
+        xbus.subscribe(ap_const.CAUSE.NEEDS, _on_needs_event, "aps_trade_intel")
+        _aps_log.info("[APS.TRADE_INTEL] Subscribed to cause:needs (siski_fast_trading detected)")
+    else
+        _aps_log.info("[APS.TRADE_INTEL] siski_fast_trading not detected, trade intel inactive")
+    end
+end
+
+function on_game_start()
+    _fast_trading = nil
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, _subscribe)
+    _aps_log.info("[APS.TRADE_INTEL] Initialized")
+end

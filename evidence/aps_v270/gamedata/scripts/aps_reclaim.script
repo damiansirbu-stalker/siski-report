@@ -1,0 +1,156 @@
+--- aps_reclaim: Smart AP->SISKI squad transitions and robbery reward system
+--- When AP releases a squad, this module notifies SISKI with context about
+--- what the squad was doing, enabling intelligent follow-up task assignment.
+--- Also handles robbery rewards: successful robbers loot items from victims.
+local pairs, type, tostring, ipairs = pairs, type, tostring, ipairs
+local RegisterScriptCallback = RegisterScriptCallback
+local alife_release_id, alife_create_item = alife_release_id, alife_create_item
+local math_random = math.random
+
+local CALLBACK = ap_const.CALLBACK
+local RESULT = ap_const.RESULT
+
+--- Map AP consequence names to suggested SISKI follow-up task types
+local _consequence_to_task = {
+    ["consequence:massacre_scavenge"] = "LOOT",
+    ["consequence:harvest_hunt"] = "PATROL",
+    ["consequence:stash_loot"] = "TRADE",
+    ["consequence:stash_fill"] = "REST_1H",
+    ["consequence:squadkill_revenge"] = "PATROL",
+    ["consequence:basekill_support"] = "PATROL",
+    ["consequence:basekill_flee"] = "REST_1H",
+    ["consequence:squadkill_flee"] = "REST_1H",
+    ["consequence:wounded_help"] = "REST_1H",
+    ["consequence:wealthy_rob"] = "TRADE",
+    ["consequence:wealthy_ambush"] = "PATROL",
+    ["consequence:predator_alert"] = "REST_1H",
+    ["consequence:predator_flee"] = "REST_1H",
+}
+
+--- Items that robbers create in their inventory after a successful robbery
+local _robbery_loot = {
+    "ammo_9x18_fmj", "ammo_9x19_fmj", "ammo_5.45x39_fmj",
+    "bandage", "medkit", "vodka", "conserva",
+    "cigarettes", "cigarettes_lucky",
+}
+
+-- ============================================================================
+-- Robbery reward: when wealthy_rob chase arrives, robber gets loot
+-- ============================================================================
+
+--- Give robbery loot to the arriving robber squad commander
+--- @param squad userdata Squad server entity
+--- @param wealth_score number Target's wealth score at time of robbery
+local function _give_robbery_loot(squad, wealth_score)
+    if not squad then return end
+    local cmd_id = squad:commander_id()
+    if not cmd_id then return end
+
+    --- Number of items scales with target wealth
+    local item_count = 1
+    if wealth_score >= 70 then item_count = 3
+    elseif wealth_score >= 50 then item_count = 2
+    end
+
+    for _ = 1, item_count do
+        local section = _robbery_loot[math_random(#_robbery_loot)]
+        xobject.create_item(section, cmd_id)
+    end
+
+    ap_debug.debug("[APS.RECLAIM] robbery_loot: squad=%d items=%d wealth=%d",
+        squad.id, item_count, wealth_score)
+end
+
+-- ============================================================================
+-- Arrival handler for wealthy_rob chase completion
+-- ============================================================================
+
+local function _on_rob_arrive(squad, args)
+    if not squad or not args then return end
+    local target_squad_id = args.target_squad_id
+    if not target_squad_id then return end
+
+    --- Check if target still exists (they may have died)
+    local target = xobject.se(target_squad_id)
+    local target_alive = target ~= nil
+
+    --- Give loot to robber regardless (they traveled, they get something)
+    local wealth = args.wealth_score or 40
+    _give_robbery_loot(squad, wealth)
+
+    --- If target is player and still alive, this becomes a hostile encounter
+    --- (the engine handles combat naturally via faction relations)
+
+    ap_debug.debug("[APS.RECLAIM] rob_arrive: robber=%d target=%d alive=%s wealth=%d",
+        squad.id, target_squad_id, tostring(target_alive), wealth)
+
+    --- Notify SISKI to assign TRADE task (robber wants to sell stolen goods)
+    aps_bridge.notify_squad_released(squad.id, "consequence:wealthy_rob", {
+        action = "robbery_complete",
+        target_alive = target_alive,
+        wealth_score = wealth,
+    })
+end
+
+-- ============================================================================
+-- SISKI reclaim listener: when AP releases squads, suggest follow-up tasks
+-- ============================================================================
+
+local function _setup_siski_reclaim_listener()
+    if not aps_bridge.is_siski_available() then return end
+    local bus = _G.siski.bus
+    if not (bus and bus.subscribe) then return end
+
+    --- Listen for AP squad releases and suggest SISKI tasks
+    bus.subscribe(_aps_const.BRIDGE_EVENT.AP_SQUAD_RELEASED, "aps_reclaim", function(payload)
+        if type(payload) ~= "table" then return end
+        local squad_id = payload.squad_id
+        local consequence = payload.consequence
+        if not squad_id or not consequence then return end
+
+        local suggested_task = _consequence_to_task[consequence]
+        if not suggested_task then return end
+
+        --- If SISKI has force_rest_after_external_reclaim, use it for REST tasks
+        if suggested_task == "REST_1H" then
+            local tasks = _G.siski.tasks
+            if tasks and tasks.force_rest_after_external_reclaim then
+                local se_squad = xobject.se(squad_id)
+                if se_squad then
+                    local ok = pcall(tasks.force_rest_after_external_reclaim, se_squad, "apx:" .. consequence)
+                    if ok then
+                        ap_debug.debug("[APS.RECLAIM] siski_rest: squad=%d from=%s", squad_id, consequence)
+                    end
+                end
+            end
+            return
+        end
+
+        --- For other tasks, publish a suggestion event that SISKI can pick up
+        bus.publish(_aps_const.BRIDGE_EVENT.SISKI_TASK_CHANGED, {
+            event = _aps_const.BRIDGE_EVENT.SISKI_TASK_CHANGED,
+            squad_id = squad_id,
+            suggested_task = suggested_task,
+            source_consequence = consequence,
+            context = payload.context,
+        })
+        ap_debug.debug("[APS.RECLAIM] siski_suggest: squad=%d task=%s from=%s",
+            squad_id, suggested_task, consequence)
+    end)
+
+    _aps_log.info("[APS.RECLAIM] SISKI reclaim listener active")
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+function on_game_start()
+    --- Register robbery arrival handler with AP tracker
+    ap_alife_tracker.register_arrival_handler("wealthy_rob_chase", _on_rob_arrive)
+
+    --- Set up SISKI reclaim listener after first update (SISKI needs to be bootstrapped)
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, _setup_siski_reclaim_listener)
+
+    _aps_log.info("[APS.RECLAIM] Initialized")
+end

@@ -1,0 +1,204 @@
+--- aps_bridge: Bidirectional event bridge between AlifePlus (xbus) and SISKI (siski.bus)
+--- Provides SISKI memory query API for AP cause predicates
+--- When SISKI is not installed, all queries return nil (AP-only mode)
+local pairs, type, tostring, pcall = pairs, type, tostring, pcall
+local RegisterScriptCallback = RegisterScriptCallback
+
+local CALLBACK = ap_const.CALLBACK
+local BRIDGE_EVENT = _aps_const.BRIDGE_EVENT
+
+local _siski_available = false
+local _bridge_subscriptions = {}
+
+-- ============================================================================
+-- SISKI detection
+-- ============================================================================
+
+--- Check if SISKI is loaded and operational
+--- @return boolean
+function is_siski_available()
+    return _siski_available
+end
+
+local function _detect_siski()
+    local s = _G.siski
+    if type(s) ~= "table" then return false end
+    if not (s.bus and s.memory and s.core) then return false end
+    if not (s.bus.subscribe and s.bus.publish) then return false end
+    return true
+end
+
+-- ============================================================================
+-- SISKI memory queries (read-only, safe for AP cause predicates)
+-- ============================================================================
+
+--- Get SISKI squad memory entry (nil if SISKI unavailable or squad unknown)
+--- @param squad_id number Squad entity ID
+--- @return table|nil { task_type, home_level, community, section, level, dirty, ... }
+function get_squad_context(squad_id)
+    if not _siski_available then return nil end
+    if not squad_id then return nil end
+    local mem = _G.siski.memory
+    if not (mem and mem.get_squad_entry) then return nil end
+    local ok, entry = pcall(mem.get_squad_entry, squad_id)
+    if not ok or type(entry) ~= "table" then return nil end
+    local task_type = nil
+    if entry.tasks and type(entry.tasks) == "table" then
+        local current = entry.tasks.current
+        if type(current) == "table" then
+            task_type = current.type
+        end
+    end
+    return {
+        task_type = task_type,
+        home_level = entry.home_level,
+        community = entry.community,
+        section = entry.section,
+        level = entry.level,
+        npc_kind = entry.npc_kind,
+        is_mutant = entry.npc_kind == "mutant",
+        dirty = entry.dirty,
+    }
+end
+
+--- Check if SISKI considers a squad protected (traders, quest givers, etc.)
+--- @param squad_or_id number|userdata Squad ID or server object
+--- @return boolean
+function is_siski_protected(squad_or_id)
+    if not _siski_available then return false end
+    local mem = _G.siski.memory
+    if not (mem and mem.is_protected_squad) then return false end
+    local ok, protected = pcall(mem.is_protected_squad, squad_or_id)
+    return ok and protected == true
+end
+
+--- Check if SISKI's AP bridge considers a squad AP-owned
+--- @param squad_id number Squad entity ID
+--- @return boolean
+function is_siski_ap_owned(squad_id)
+    if not _siski_available then return false end
+    local bridge = _G.siski.ap_bridge
+    if not (bridge and bridge.is_ap_owned_squad) then return false end
+    local ok, owned = pcall(bridge.is_ap_owned_squad, squad_id)
+    return ok and owned == true
+end
+
+--- Query SISKI board_index for squads on a level (faster than xsquad.find_squads)
+--- Falls back to nil if SISKI unavailable (caller should use xsquad.find_squads)
+--- @param level_name string Level name
+--- @param community string|nil Faction filter
+--- @return table|nil Array of squad IDs or nil
+function query_board_index(level_name, community)
+    if not _siski_available then return nil end
+    local bi = _G.siski.board_index
+    if not bi then return nil end
+    if bi.get_squads_on_level then
+        local ok, result = pcall(bi.get_squads_on_level, level_name, community)
+        if ok and type(result) == "table" then return result end
+    end
+    return nil
+end
+
+-- ============================================================================
+-- Event bus bridge: forward selected AP causes to SISKI bus
+-- ============================================================================
+
+local _ap_causes_to_forward = {
+    [ap_const.CAUSE.MASSACRE] = true,
+    [ap_const.CAUSE.BASEKILL] = true,
+    [ap_const.CAUSE.SQUADKILL] = true,
+    [ap_const.CAUSE.WOUNDED] = true,
+    [ap_const.CAUSE.HARVEST] = true,
+    [ap_const.CAUSE.STASH] = true,
+}
+
+local function _forward_ap_cause_to_siski(cause_name)
+    return function(event_data)
+        if not _siski_available then return end
+        local payload = {
+            event = BRIDGE_EVENT.AP_CAUSE_RECEIVED,
+            cause = cause_name,
+            level_id = event_data.level_id,
+            squad_id = event_data.squad_id,
+            position = event_data.position,
+            smart_id = event_data.smart_id,
+        }
+        local ok, err = pcall(_G.siski.bus.publish, BRIDGE_EVENT.AP_CAUSE_RECEIVED, payload)
+        if not ok then
+            ap_debug.warn("[APS.BRIDGE] failed to forward cause=%s to SISKI: %s", cause_name, tostring(err))
+        end
+    end
+end
+
+local function _subscribe_ap_to_siski()
+    for cause_name in pairs(_ap_causes_to_forward) do
+        local sub_name = "aps_bridge_" .. cause_name
+        xbus.subscribe(cause_name, _forward_ap_cause_to_siski(cause_name), sub_name)
+        ap_debug.debug("[APS.BRIDGE] forwarding %s -> siski.bus", cause_name)
+    end
+end
+
+-- ============================================================================
+-- Event bus bridge: forward SISKI events to xbus for AP consequences
+-- ============================================================================
+
+local _siski_events_to_forward = {
+    "squad_on_npc_death",
+    "squad_on_first_update",
+}
+
+local function _subscribe_siski_to_ap()
+    if not _siski_available then return end
+    local bus = _G.siski.bus
+    --- Forward SISKI mutant hunt events if mutant module exists
+    if _G.siski.mutants then
+        bus.subscribe("mutant_hunt_started", "aps_bridge_predator", function(payload)
+            if type(payload) ~= "table" then return end
+            xbus.publish(BRIDGE_EVENT.SISKI_PREDATOR_HUNT, payload)
+        end)
+        ap_debug.debug("[APS.BRIDGE] subscribed to siski mutant_hunt_started")
+    end
+end
+
+-- ============================================================================
+-- Reclaim intelligence: when AP releases a squad, tell SISKI what happened
+-- ============================================================================
+
+--- Notify SISKI that AP has released a squad with context about what it did
+--- @param squad_id number Squad entity ID
+--- @param consequence string Consequence name that scripted this squad
+--- @param context table|nil Additional context { dst_name, action, items_consumed }
+function notify_squad_released(squad_id, consequence, context)
+    if not _siski_available then return end
+    local payload = {
+        event = BRIDGE_EVENT.AP_SQUAD_RELEASED,
+        squad_id = squad_id,
+        consequence = consequence,
+        context = context or {},
+    }
+    local ok, err = pcall(_G.siski.bus.publish, BRIDGE_EVENT.AP_SQUAD_RELEASED, payload)
+    if ok then
+        ap_debug.debug("[APS.BRIDGE] notified SISKI: squad=%d released from %s", squad_id, consequence)
+    end
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+local function _on_first_update()
+    if _siski_available then
+        _subscribe_ap_to_siski()
+        _subscribe_siski_to_ap()
+        _aps_log.info("[APS.BRIDGE] Event bridge active: AP <-> SISKI")
+    else
+        _aps_log.info("[APS.BRIDGE] SISKI not available, bridge inactive")
+    end
+end
+
+function on_game_start()
+    _siski_available = _detect_siski()
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, _on_first_update)
+    _aps_log.info("[APS.BRIDGE] Initialized siski=%s", tostring(_siski_available))
+end
+if printf then printf('[APS] aps_bridge loaded') end

@@ -1,0 +1,180 @@
+--- aps_wealth: Wealth scoring for entities (player + NPCs)
+--- Score 0-100 representing how attractive a target looks to robbers.
+--- Uses visible proxies: outfit tier, elite level, artefact carry, money.
+local type, math_min, math_floor, string_find = type, math.min, math.floor, string.find
+local WEALTH_SCORE_MAX = _aps_const.WEALTH_SCORE_MAX
+local OUTFIT_TIER_PATTERNS = _aps_const.OUTFIT_TIER_PATTERNS
+
+-- ============================================================================
+-- Outfit tier detection (cached per section)
+-- ============================================================================
+
+local _outfit_tier_cache = {}
+
+--- Determine outfit tier from section name (3=heavy, 2=medium, 1=light, 0=unknown)
+--- @param section string Outfit section name
+--- @return number 0-3
+local function _get_outfit_tier(section)
+    if not section then return 0 end
+    if _outfit_tier_cache[section] ~= nil then return _outfit_tier_cache[section] end
+    local lower = section:lower()
+    for _, entry in ipairs(OUTFIT_TIER_PATTERNS) do
+        for _, pattern in ipairs(entry.patterns) do
+            if string_find(lower, pattern, 1, true) then
+                _outfit_tier_cache[section] = entry.tier
+                return entry.tier
+            end
+        end
+    end
+    _outfit_tier_cache[section] = 0
+    return 0
+end
+
+-- ============================================================================
+-- Actor (player) wealth
+-- ============================================================================
+
+--- Count artefacts in actor inventory
+--- @param actor userdata db.actor game_object
+--- @return number count
+local function _count_actor_artefacts(actor)
+    local count = 0
+    actor:iterate_inventory(function(_owner, item)
+        if item and IsArtefact and IsArtefact(item) then
+            count = count + 1
+        end
+    end, actor)
+    return count
+end
+
+--- Get actor outfit tier
+--- @param actor userdata db.actor game_object
+--- @return number 0-3
+local function _get_actor_outfit_tier(actor)
+    local outfit = actor:item_in_slot(7)
+    if not outfit then return 0 end
+    return _get_outfit_tier(outfit:section())
+end
+
+--- Score player wealth (0-100)
+--- @return number score, table breakdown
+function score_actor()
+    local actor = db.actor
+    if not actor then return 0, {} end
+
+    local outfit_tier = _get_actor_outfit_tier(actor)
+    local outfit_score = outfit_tier * _aps_const.WEALTH_OUTFIT_TIER_WEIGHT
+
+    local money = actor:money() or 0
+    local money_score = math_min(25, math_floor(money / _aps_const.WEALTH_MONEY_DIVISOR))
+
+    local artefact_count = _count_actor_artefacts(actor)
+    local artefact_score = math_min(30, artefact_count * _aps_const.WEALTH_ARTEFACT_WEIGHT)
+
+    local elite_level = 0
+    if ap_alife_tracker and ap_alife_tracker.get_elite_level then
+        elite_level = ap_alife_tracker.get_elite_level(0) or 0
+    end
+    local elite_score = math_min(25, elite_level * _aps_const.WEALTH_ELITE_WEIGHT)
+
+    local total = math_min(WEALTH_SCORE_MAX, outfit_score + money_score + artefact_score + elite_score)
+
+    return total, {
+        outfit_tier = outfit_tier,
+        outfit_score = outfit_score,
+        money = money,
+        money_score = money_score,
+        artefact_count = artefact_count,
+        artefact_score = artefact_score,
+        elite_level = elite_level,
+        elite_score = elite_score,
+    }
+end
+
+-- ============================================================================
+-- NPC wealth (squad-based)
+-- ============================================================================
+
+--- Score NPC squad wealth (0-100)
+--- Uses elite level as primary proxy, SISKI context as secondary
+--- @param squad_id number Squad entity ID
+--- @param se_squad userdata|nil Server squad entity
+--- @return number score, table breakdown
+function score_squad(squad_id, se_squad)
+    if not squad_id then return 0, {} end
+
+    --- Elite level from AP tracker
+    local elite_level = 0
+    if ap_alife_tracker and ap_alife_tracker.get_elite_level then
+        local cmd_id
+        if se_squad then
+            local ok, id = pcall(function() return se_squad:commander_id() end)
+            if ok then cmd_id = id end
+        end
+        if cmd_id then
+            elite_level = ap_alife_tracker.get_elite_level(cmd_id) or 0
+        end
+    end
+    local elite_score = math_min(40, elite_level * _aps_const.WEALTH_ELITE_WEIGHT)
+
+    --- Outfit tier from online game_object
+    local outfit_tier = 0
+    if se_squad then
+        local cmd_id
+        local ok1, id = pcall(function() return se_squad:commander_id() end)
+        if ok1 then cmd_id = id end
+        if cmd_id then
+            local go = xobject.go(cmd_id)
+            if go then
+                local outfit = go:item_in_slot(7)
+                if outfit then
+                    outfit_tier = _get_outfit_tier(outfit:section())
+                end
+            end
+        end
+    end
+    local outfit_score = outfit_tier * _aps_const.WEALTH_OUTFIT_TIER_WEIGHT
+
+    --- Artefact carry: check online commander inventory for af_* items
+    local artefact_count = 0
+    if se_squad then
+        local cmd_id
+        local ok2, id = pcall(function() return se_squad:commander_id() end)
+        if ok2 then cmd_id = id end
+        if cmd_id then
+            local go = xobject.go(cmd_id)
+            if go then
+                go:iterate_inventory(function(_owner, item)
+                    if item and IsArtefact and IsArtefact(item) then
+                        artefact_count = artefact_count + 1
+                    end
+                end, go)
+            end
+        end
+    end
+    local artefact_score = math_min(30, artefact_count * _aps_const.WEALTH_ARTEFACT_WEIGHT)
+
+    --- SISKI task context bonus: squad on TRADE task likely carrying valuables
+    local task_bonus = 0
+    if aps_bridge.is_siski_available() then
+        local ctx = aps_bridge.get_squad_context(squad_id)
+        if ctx and ctx.task_type == "TRADE" then
+            task_bonus = 10
+        end
+        if ctx and ctx.task_type == "ARTEFACT" then
+            task_bonus = 5
+        end
+    end
+
+    local total = math_min(WEALTH_SCORE_MAX, elite_score + outfit_score + artefact_score + task_bonus)
+
+    return total, {
+        elite_level = elite_level,
+        elite_score = elite_score,
+        outfit_tier = outfit_tier,
+        outfit_score = outfit_score,
+        artefact_count = artefact_count,
+        artefact_score = artefact_score,
+        task_bonus = task_bonus,
+    }
+end

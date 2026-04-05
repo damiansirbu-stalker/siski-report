@@ -1,0 +1,180 @@
+--- aps_population: Population safeguard
+--- Tracks squad count on the player's current level.
+--- When count drops below threshold, signals both AP and SISKI to
+--- suppress outbound scripting (keep squads on the player's map).
+--- This directly addresses the "empty world" problem that users report
+--- when SISKI sends too many squads to other levels.
+---
+--- HOW IT WORKS:
+--- 1. Every 60s, counts stalker+mutant squads on the player's level
+--- 2. If count < threshold, sets _level_depopulated = true
+--- 3. AP consequences check aps_population.is_level_safe() before scripting
+---    squads to leave the player's level
+--- 4. Publishes LEVEL_DEPOPULATED event on siski.bus so SISKI can also
+---    suppress outbound EXPLORE/TRADE tasks for that level
+--- 5. When count recovers above threshold + hysteresis, clears the flag
+---
+--- This is a safeguard, not a population manager. It doesn't spawn squads.
+--- It prevents existing squads from leaving when the map is already thin.
+
+local pairs, type, tostring, pcall = pairs, type, tostring, pcall
+local RegisterScriptCallback = RegisterScriptCallback
+local ResetTimeEvent, CreateTimeEvent = ResetTimeEvent, CreateTimeEvent
+
+local CALLBACK = ap_const.CALLBACK
+local BRIDGE_EVENT = _aps_const.BRIDGE_EVENT
+local CHECK_INTERVAL = _aps_const.POPULATION_CHECK_INTERVAL_SEC
+
+local cfg
+local _level_depopulated = false
+local _current_level_id = nil
+local _last_count = 0
+local _hysteresis = 3
+
+-- ============================================================================
+-- Public API
+-- ============================================================================
+
+--- Check if the player's current level is dangerously depopulated.
+--- AP consequences and the bridge should call this before scripting squads
+--- to leave the player's level.
+--- @return boolean true = level is safe (enough squads), false = depopulated
+function is_level_safe()
+    return not _level_depopulated
+end
+
+--- Get the last measured squad count on the player's level
+--- @return number
+function get_level_squad_count()
+    return _last_count
+end
+
+--- Check if a specific squad should be prevented from leaving the player's level
+--- @param squad_id number Squad entity ID
+--- @param destination_level_id number|nil Target level (nil = same level, always ok)
+--- @return boolean true = ok to script, false = blocked by population safeguard
+function can_script_outbound(squad_id, destination_level_id)
+    if not cfg.population_safeguard_enabled then return true end
+    if not _level_depopulated then return true end
+    if not destination_level_id then return true end
+    if destination_level_id == _current_level_id then return true end
+    --- Squad is trying to leave a depopulated level: block it
+    ap_debug.debug("[APS.POPULATION] BLOCKED outbound: squad=%d dst_level=%d (level has %d squads, min=%d)",
+        squad_id, destination_level_id, _last_count, cfg.population_min_squads)
+    return false
+end
+
+-- ============================================================================
+-- Population counting — uses xsquad.find_squads (same as AP consequences)
+-- ============================================================================
+
+local function _count_squads_on_level()
+    local actor = db.actor
+    if not actor then return 0 end
+    local level_id = xlevel.get_actor_level_id()
+    local count = 0
+    local ok, err = pcall(function()
+        local opts = {
+            max_distance = 10000,
+            max_count = 200,
+        }
+        --- Only filter by level if we have a valid level_id
+        if level_id then opts.level_id = level_id end
+        local squads = xsquad.find_squads(actor:position(), opts)
+        count = #squads
+    end)
+    if not ok then
+        _aps_log.warn("[POPULATION] find_squads error: %s", tostring(err))
+    end
+    _aps_log.info("[POPULATION] counted: %d squads (level_id=%s)", count, tostring(level_id))
+    return count
+end
+
+local function _check_population()
+    --- CRITICAL: reschedule timer (without this, check only runs once!)
+    ResetTimeEvent("aps_population", "check", CHECK_INTERVAL)
+
+    --- Safety: get cfg from aps_mcm directly if local cfg is nil
+    if not cfg then cfg = aps_mcm and aps_mcm.cfg end
+    if not cfg then
+        _aps_log.warn("[APS.POPULATION] cfg is nil, skipping")
+        return
+    end
+
+    if not cfg.population_safeguard_enabled then
+        if _level_depopulated then
+            _level_depopulated = false
+        end
+        return
+    end
+
+    local actor_level_name = level and level.name and level.name() or "?"
+    _current_level_id = actor_level_name
+
+    _last_count = _count_squads_on_level()
+    local threshold = cfg.population_min_squads
+    local was_depopulated = _level_depopulated
+
+    _aps_log.info("[APS.POPULATION] CHECK: level=%s squads=%d threshold=%d",
+        actor_level_name, _last_count, threshold or -1)
+
+    --- Feed difficulty scaling
+    if aps_difficulty and aps_difficulty.update_population then
+        aps_difficulty.update_population(_last_count)
+    end
+
+    if _last_count < threshold then
+        _level_depopulated = true
+        if not was_depopulated then
+            _aps_log.info("[APS.POPULATION] DEPOPULATED: level=%d squads=%d threshold=%d",
+                _current_level_id, _last_count, threshold)
+            --- Notify SISKI
+            if _G.siski and _G.siski.bus and _G.siski.bus.publish then
+                _G.siski.bus.publish(BRIDGE_EVENT.LEVEL_DEPOPULATED, {
+                    event = BRIDGE_EVENT.LEVEL_DEPOPULATED,
+                    level_id = _current_level_id,
+                    squad_count = _last_count,
+                    threshold = threshold,
+                })
+            end
+        end
+    elseif _last_count >= threshold + _hysteresis then
+        _level_depopulated = false
+        if was_depopulated then
+            _aps_log.info("[APS.POPULATION] RECOVERED: level=%d squads=%d threshold=%d",
+                _current_level_id, _last_count, threshold)
+            if _G.siski and _G.siski.bus and _G.siski.bus.publish then
+                _G.siski.bus.publish(BRIDGE_EVENT.LEVEL_REPOPULATED, {
+                    event = BRIDGE_EVENT.LEVEL_REPOPULATED,
+                    level_id = _current_level_id,
+                    squad_count = _last_count,
+                })
+            end
+        end
+    end
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+function on_game_start()
+    cfg = aps_mcm.cfg
+    _level_depopulated = false
+    _current_level_id = nil
+    _last_count = 0
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, function()
+        --- Wrapped timer callback: catches ALL errors and logs them
+        local function _safe_check()
+            ResetTimeEvent("aps_population", "check", CHECK_INTERVAL)
+            local ok, err = pcall(_check_population)
+            if not ok then
+                _aps_log.warn("[APS.POPULATION] CRASH in _check_population: %s", tostring(err))
+            end
+        end
+        CreateTimeEvent("aps_population", "check", 5, _safe_check)
+    end)
+    _aps_log.info("[APS.POPULATION] Initialized (threshold=%d, interval=%ds)",
+        _aps_const.POPULATION_MIN_SQUADS_ON_LEVEL, CHECK_INTERVAL)
+end
+if printf then printf('[APS] aps_population loaded') end

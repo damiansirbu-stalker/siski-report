@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SISKI Nano: Technical Analysis</title>
+<style>
+:root {
+  --bg: #faf9f6;
+  --bg-card: #f0f0ee;
+  --bg-code: #ebebeb;
+  --border: #c8c3b6;
+  --fg: #2c2a25;
+  --fg-dim: #6e6960;
+  --blue: #0969da;
+  --green: #1a7f37;
+  --red: #cf222e;
+  --yellow: #9a6700;
+  --sand: #d4c5a0;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: Georgia, "Times New Roman", Times, serif;
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--fg);
+  background: var(--bg);
+}
+.page { display: flex; max-width: 1180px; margin: 0 auto; padding: 0 24px; }
+.sidebar {
+  width: 260px; min-width: 260px; padding: 40px 0 80px 0; margin-right: 32px;
+}
+.sidebar nav {
+  position: sticky; top: 24px; max-height: calc(100vh - 48px); overflow-y: auto;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px;
+  padding: 14px 16px; font-size: 13px;
+}
+.sidebar nav h2 { font-size: 13px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.sidebar nav ol { padding-left: 18px; margin-bottom: 0; }
+.sidebar nav li { margin-bottom: 4px; font-size: 13px; line-height: 1.5; }
+.sidebar nav a { color: var(--blue); text-decoration: none; }
+.sidebar nav a:hover { text-decoration: underline; }
+.wrap { max-width: 860px; flex: 1; min-width: 0; padding: 40px 0 80px; }
+header { margin-bottom: 32px; }
+header h1 { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
+header p { color: var(--fg-dim); font-size: 14px; }
+section { margin-bottom: 40px; }
+h2 { font-size: 22px; font-weight: 700; padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+h3 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
+p { margin-bottom: 10px; }
+table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 13px; }
+th, td { padding: 6px 10px; border: 1px solid var(--border); text-align: left; }
+th { background: var(--bg-card); font-weight: 600; }
+tr:nth-child(even) td { background: var(--bg-card); }
+pre { background: var(--bg-code); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; overflow-x: auto; margin-bottom: 14px; font-size: 13px; line-height: 1.5; }
+code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; }
+p code, li code, td code { background: var(--bg-code); padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border); }
+.compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.compare-panel { background: var(--bg-code); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.compare-panel:has(.compare-label.src) { background: rgba(26,127,55,0.04); }
+.compare-panel:has(.compare-label.cpy) { background: rgba(207,34,46,0.05); }
+.compare-label { padding: 4px 12px; font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--border); }
+.compare-label.src { background: rgba(63,185,80,0.1); color: var(--green); }
+.compare-label.cpy { background: rgba(248,81,73,0.1); color: var(--red); }
+.compare-panel pre { border: none; border-radius: 0; margin: 0; background: transparent; }
+.callout { padding: 12px 16px; border-radius: 6px; margin-bottom: 14px; border-left: 3px solid; background: var(--bg-card); font-size: 14px; }
+.callout.note { border-color: var(--blue); }
+.callout.warn { border-color: var(--yellow); }
+.callout.key { border-color: var(--red); }
+ol, ul { padding-left: 20px; margin-bottom: 10px; }
+li { margin-bottom: 3px; }
+footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid var(--border); color: var(--fg-dim); font-size: 12px; }
+footer a { color: var(--blue); }
+@media (max-width: 960px) {
+  .page { flex-direction: column; padding: 0 16px; }
+  .sidebar { width: 100%; min-width: 0; margin-right: 0; padding: 20px 0 0 0; }
+  .sidebar nav { position: static; max-height: none; }
+  .wrap { padding: 20px 0 60px; }
+  .compare { grid-template-columns: 1fr; }
+}
+/* Lightbox */
+.thumb { cursor: pointer; transition: opacity 0.15s; }
+.thumb:hover { opacity: 0.85; }
+.lightbox {
+  display: none; position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.85); align-items: center; justify-content: center; cursor: pointer;
+}
+.lightbox.open { display: flex; }
+.lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 6px; box-shadow: 0 8px 32px rgba(0,0,0,0.4); }
+.topnav-wrap { position: sticky; top: 0; z-index: 100; background: var(--bg); border-bottom: 1px solid var(--border); }
+.topnav { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 12px 24px; font-size: 13px; font-weight: 500; max-width: 1180px; margin: 0 auto; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+.sidebar nav, table, .compare-label { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+.topnav a { color: var(--fg-dim); text-decoration: none; padding: 4px 6px; border-radius: 4px; transition: background 0.1s, color 0.1s; }
+.topnav a:hover { color: var(--blue); background: var(--bg-card); }
+.topnav a.active { color: var(--fg); border-bottom: 2px solid var(--sand); }
+.topnav .sep { width: 1px; height: 14px; background: var(--border); align-self: center; margin: 0 4px; }
+
+h2 .anchor, h3 .anchor { opacity: 0; margin-left: 6px; color: var(--fg-dim); text-decoration: none; font-size: 0.8em; transition: opacity 0.15s; }
+h2:hover .anchor, h3:hover .anchor { opacity: 0.6; }
+h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
+
+@media print {
+  .topnav-wrap, .sidebar, .lightbox { display: none !important; }
+  .page { display: block; padding: 0; }
+  .wrap { max-width: 100%; padding: 0; }
+  body { font-size: 12pt; line-height: 1.5; }
+  h2 { page-break-before: always; }
+  h2:first-of-type { page-break-before: avoid; }
+  pre { white-space: pre-wrap; word-wrap: break-word; font-size: 9pt; }
+  table { font-size: 9pt; }
+  .callout { border-left-width: 3px; }
+  a[href]::after { content: " (" attr(href) ")"; font-size: 8pt; color: #666; }
+  a[href^="#"]::after { content: ""; }
+  .compare, .mirror { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<div class="topnav-wrap">
+<nav class="topnav">
+  <a href="index.html">Home</a>
+  <a href="guide.html">Usage Guide</a>
+  <a href="siski.html">SISKI Report</a>
+  <a href="nano.html" class="active">SISKI Nano</a>
+  <a href="aps.html">APS Analysis</a>
+  <a href="https://github.com/damiansirbu-stalker" style="margin-left:auto">GitHub</a>
+</nav>
+</div>
+<div class="page">
+
+<div class="sidebar">
+<nav>
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#distribution">Distribution</a></li>
+    <li><a href="#patterns">Copied Patterns</a></li>
+    <li><a href="#ai">AI Code Artifacts</a></li>
+    <li><a href="#license">License</a></li>
+  </ol>
+</nav>
+</div>
+
+<div class="wrap">
+
+<header>
+  <h1>SISKI Nano: Technical Analysis</h1>
+  <p>Damian Sirbu, xlibs and AlifePlus developer &middot; 2026-04-05 &middot; Subject: SISKI Nano by qkff99</p>
+  <p style="font-size:12px;color:var(--fg-dim)">ModDB: <a href="https://www.moddb.com/mods/stalker-anomaly/addons/siski-nano-size-alife-anomaly-153">SISKI Nano</a></p>
+</header>
+
+<div class="callout note">
+<strong>Context:</strong> SISKI Nano is a separate download from <a href="siski.html">SISKI ALIFE</a>, distributed by the same author (qkff99). It is a single-file mod that compresses SISKI's alife functionality into one script. This analysis examines its relationship to xlibs and AlifePlus patterns. For the full SISKI case, see the <a href="siski.html">SISKI report</a>.
+</div>
+
+<!-- 1. OVERVIEW -->
+<section id="overview">
+<h2>1. Overview</h2>
+
+<table>
+  <tr><th>Field</th><th>Value</th></tr>
+  <tr><td>Author</td><td>qkff99</td></tr>
+  <tr><td>Format</td><td>Single file (<code>siski_compact.script</code>, 915 lines) + 1 LTX config</td></tr>
+  <tr><td>Git repository</td><td>None</td></tr>
+  <tr><td>Version control</td><td>None</td></tr>
+  <tr><td>License file</td><td>None</td></tr>
+  <tr><td>Attribution to xlibs/AlifePlus</td><td>None</td></tr>
+</table>
+</section>
+
+<!-- 2. DISTRIBUTION -->
+<section id="distribution">
+<h2>2. Distribution</h2>
+
+<p>SISKI Nano is distributed as a bare file drop: two files in a zip, no README, no license, no changelog, no git repository. Unlike SISKI ALIFE (which has a <a href="https://github.com/qkff99/siski">public GitHub repo</a>), SISKI Nano has no version control history of any kind. There is no way to trace when the code was written, how it evolved, or what was added between versions.</p>
+
+<p>For comparison, SISKI ALIFE's git history is what made it possible to identify the copied patterns (deleted AI plans in commit <code>b026c90</code>, the before/after callback comparison between 0.9.4.1 and 0.9.5). SISKI Nano has no such trail.</p>
+</section>
+
+<!-- 3. COPIED PATTERNS -->
+<section id="patterns">
+<h2>3. Copied Patterns</h2>
+
+<h3>3a. squad_on_update as sole tick source</h3>
+
+<p><strong>In plain English:</strong> SISKI Nano uses the same callback approach as AlifePlus and SISKI 0.9.5 &mdash; processing squads via <code>squad_on_update</code> instead of the older <code>actor_on_update</code> loop. This is the architectural change that SISKI adopted from AlifePlus in March 2026.</p>
+
+<pre><code>-- siski_compact.script :906
+RegisterScriptCallback("squad_on_update", compact.on_squad_update)</code></pre>
+
+<p>This is the only engine callback registered for gameplay processing. The entire mod runs through <code>squad_on_update</code> &mdash; the same design that AlifePlus uses and that SISKI 0.9.4.1 did not have (it used <code>actor_on_update</code>).</p>
+
+<h3>3b. Squad field manipulation from xsquad</h3>
+
+<p><strong>In plain English:</strong> When a mod takes control of a squad (sends it somewhere), it sets specific engine fields. The particular combination and order of fields used here matches xsquad's pattern rather than other Anomaly mods that do the same thing differently.</p>
+
+<div class="compare">
+  <div class="compare-panel">
+    <div class="compare-label src">xsquad.script :488-491 (xlibs)</div>
+    <pre><code>squad.scripted_target    = name
+squad.rush_to_target     = rush == true
+squad.assigned_target_id = target_smart.id
+squad.current_action     = 0</code></pre>
+  </div>
+  <div class="compare-panel">
+    <div class="compare-label cpy">siski_compact.script :705-713</div>
+    <pre><code>se_squad.scripted_target    = smart_name
+se_squad.assigned_target_id = smart_id
+se_squad.current_action     = 0
+se_squad.task_target_id     = nil
+se_squad.current_target_id  = nil</code></pre>
+  </div>
+</div>
+
+<p>Individual fields like <code>scripted_target</code> are standard engine usage. The specific combination &mdash; <code>scripted_target</code>, <code>assigned_target_id</code>, <code>current_action</code> set together with additional field clears &mdash; mirrors the xsquad and siski_ap_bridge pattern rather than the Warfare approach (which uses <code>__lock</code>, sets fields in a different order, and uses <code>current_target_id</code>).</p>
+</section>
+
+<!-- 4. AI CODE ARTIFACTS -->
+<section id="ai">
+<h2>4. AI Code Artifacts</h2>
+
+<p>SISKI Nano shares the same AI-generated code markers found in <a href="siski.html#aislop">SISKI ALIFE</a>, consistent with the author's admission that SISKI is "~95% vibe coded."</p>
+
+<table>
+  <tr><th>Marker</th><th>Count</th><th>Rate</th><th>Detail</th></tr>
+  <tr><td><code>_G.</code> prefixed builtins</td><td>12</td><td>Lines 4-16</td><td><code>_G.type</code>, <code>_G.tonumber</code>, <code>_G.tostring</code>, <code>_G.pairs</code>, <code>_G.next</code>, <code>_G.rawget</code>, <code>_G.time_global</code>, <code>_G.alife</code>, <code>_G.game</code>, etc. Roblox/WoW addon pattern. STALKER Lua is not sandboxed &mdash; these prefixes are unnecessary. This pattern does not appear in any human-written STALKER mod.</td></tr>
+  <tr><td><code>rawget(_G, ...)</code></td><td>7</td><td>1 per 131 lines</td><td>Defensive global access pattern. Used where direct access is safe.</td></tr>
+  <tr><td><code>== true</code> redundant</td><td>7</td><td>1 per 131 lines</td><td>Explicit boolean comparison where Lua truthiness suffices.</td></tr>
+  <tr><td><code>time_global and time_global()</code></td><td>1</td><td>Line 92</td><td>Existence check on an engine builtin that is always defined.</td></tr>
+</table>
+
+<p>Notably, SISKI Nano contains zero <code>pcall</code> wraps &mdash; unlike SISKI ALIFE (488 pcalls) and APS (67 pcalls). The other AI markers (<code>_G.</code> prefixing, <code>rawget</code>, <code>== true</code>) are consistent across all three mods.</p>
+</section>
+
+<!-- 5. LICENSE -->
+<section id="license">
+<h2>5. License</h2>
+
+<p>SISKI Nano contains no license file, no README, and no attribution to xlibs or AlifePlus. The <code>squad_on_update</code> architecture and squad field patterns originate from AlifePlus and xlibs, which are licensed under the <a href="https://github.com/damiansirbu-stalker/AlifePlus/blob/main/LICENSE">PolyForm Perimeter License</a> requiring visible credit for derivative use.</p>
+
+<p>For the full license analysis and the author's admissions regarding code copying, see the <a href="siski.html">SISKI report</a>.</p>
+</section>
+
+<footer>
+  <p>
+    Analysis of SISKI Nano from <a href="https://www.moddb.com/mods/stalker-anomaly/addons/siski-nano-size-alife-anomaly-153">ModDB</a>. Source file archived in <code>evidence/siski_nano/</code>. For the main SISKI case, see <a href="siski.html">the SISKI report</a>. For proper integration guidance, see <a href="guide.html">the usage guide</a>.
+  </p>
+</footer>
+
+</div>
+</div>
+
+<div class="lightbox" id="lb" onclick="this.classList.remove('open')"><img id="lb-img" src="" alt=""></div>
+<script>
+document.querySelectorAll('.thumb').forEach(function(img) {
+  img.addEventListener('click', function() {
+    document.getElementById('lb-img').src = this.src;
+    document.getElementById('lb').classList.add('open');
+  });
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') document.getElementById('lb').classList.remove('open');
+});
+document.querySelectorAll('h2[id], h3[id]').forEach(function(h) {
+  var a = document.createElement('a');
+  a.className = 'anchor';
+  a.href = '#' + h.id;
+  a.textContent = '#';
+  h.appendChild(a);
+});
+</script>
+</body>
+</html>

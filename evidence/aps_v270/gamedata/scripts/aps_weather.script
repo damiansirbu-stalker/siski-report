@@ -1,0 +1,144 @@
+--- aps_weather: Weather-driven behavior modifiers
+---
+--- Monitors game weather state and adjusts difficulty multipliers:
+---
+--- EMISSIONS/STORMS:
+---   Robbery multiplier = 0.1 (almost zero — everyone is running for shelter)
+---   Predator multiplier = 2.0 (mutants are emboldened, stalkers are vulnerable)
+---   Reasoning: during emissions, nobody is thinking about robbery. But predators
+---   don't care about emissions and vulnerable stalkers fleeing to shelter are easy prey.
+---
+--- NIGHT (22:00-05:00):
+---   Robbery multiplier = 1.5 (darkness provides cover for ambushes)
+---   Predator multiplier = 1.3 (night predators are more active)
+---   Reasoning: bandits prefer to operate at night. Predators have night phases.
+---
+--- CLEAR DAY:
+---   Both multipliers = 1.0 (baseline)
+---
+--- The multipliers feed into aps_difficulty which consequences query
+--- before their chance rolls.
+
+local type, pcall = type, pcall
+local RegisterScriptCallback = RegisterScriptCallback
+local ResetTimeEvent, CreateTimeEvent = ResetTimeEvent, CreateTimeEvent
+
+local CALLBACK = ap_const.CALLBACK
+local CHECK_SEC = _aps_const.WEATHER_CHECK_SEC
+local NIGHT_START = _aps_const.WEATHER_NIGHT_START_HOUR
+local NIGHT_END = _aps_const.WEATHER_NIGHT_END_HOUR
+
+local cfg
+local _is_emission = false
+local _is_night = false
+local _robbery_mult = 1.0
+local _predator_mult = 1.0
+
+-- ============================================================================
+-- Public API
+-- ============================================================================
+
+--- Is there currently an emission or psi-storm active?
+function is_emission_active()
+    return _is_emission
+end
+
+--- Is it currently nighttime?
+function is_night()
+    return _is_night
+end
+
+--- Get current robbery weather multiplier
+function get_robbery_multiplier()
+    return _robbery_mult
+end
+
+--- Get current predator weather multiplier
+function get_predator_multiplier()
+    return _predator_mult
+end
+
+-- ============================================================================
+-- Weather detection
+-- ============================================================================
+
+local function _check_emission()
+    --- Check surge_manager for active emission
+    local sm = _G.surge_manager
+    if sm and type(sm.is_started) == "function" then
+        local ok, active = pcall(sm.is_started)
+        if ok then return active == true end
+    end
+    --- Fallback: check surge_manager singleton
+    if sm and type(sm.get_surge_manager) == "function" then
+        local ok, mgr = pcall(sm.get_surge_manager)
+        if ok and mgr and type(mgr.is_started) == "function" then
+            local ok2, active = pcall(mgr.is_started, mgr)
+            if ok2 then return active == true end
+        end
+    end
+    --- Fallback: check psi_storm_manager
+    local psm = _G.psi_storm_manager
+    if psm and type(psm.is_started) == "function" then
+        local ok, active = pcall(psm.is_started)
+        if ok and active == true then return true end
+    end
+    return false
+end
+
+local function _check_night()
+    local hours = level and level.get_time_hours and level.get_time_hours()
+    if not hours then return false end
+    return hours >= NIGHT_START or hours < NIGHT_END
+end
+
+-- ============================================================================
+-- Periodic update
+-- ============================================================================
+
+local function _update_weather()
+    ResetTimeEvent("aps_weather", "check", CHECK_SEC)
+
+    if not cfg.weather_modifiers_enabled then
+        _robbery_mult = 1.0
+        _predator_mult = 1.0
+        aps_difficulty.update_weather(1.0, 1.0)
+        return
+    end
+
+    _is_emission = _check_emission()
+    _is_night = _check_night()
+
+    if _is_emission then
+        _robbery_mult = _aps_const.WEATHER_EMISSION_ROBBERY_MULT
+        _predator_mult = _aps_const.WEATHER_EMISSION_PREDATOR_MULT
+    elseif _is_night then
+        _robbery_mult = _aps_const.WEATHER_NIGHT_ROBBERY_MULT
+        _predator_mult = _aps_const.WEATHER_NIGHT_PREDATOR_MULT
+    else
+        _robbery_mult = 1.0
+        _predator_mult = 1.0
+    end
+
+    --- Push to difficulty system
+    aps_difficulty.update_weather(_robbery_mult, _predator_mult)
+
+    ap_debug.debug("[APS.WEATHER] emission=%s night=%s robbery=%.1fx predator=%.1fx",
+        tostring(_is_emission), tostring(_is_night), _robbery_mult, _predator_mult)
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+function on_game_start()
+    cfg = aps_mcm.cfg
+    _is_emission = false
+    _is_night = false
+    _robbery_mult = 1.0
+    _predator_mult = 1.0
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, function()
+        CreateTimeEvent("aps_weather", "check", CHECK_SEC, _update_weather)
+    end)
+    _aps_log.info("[APS.WEATHER] Initialized (interval=%ds)", CHECK_SEC)
+end

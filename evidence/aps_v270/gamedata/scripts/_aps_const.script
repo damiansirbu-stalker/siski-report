@@ -1,0 +1,111 @@
+--- aps_const: Shared enums for AlifePlus SISKI Synergy
+--- Prefix: aps_ (AlifePlus-SISKI)
+
+--- Cause event names (extends ap_const.CAUSE)
+CAUSE = {
+    WEALTHY = "cause:wealthy",
+    PREDATOR = "cause:predator",
+}
+
+--- Consequence identifiers (extends ap_const.CONSEQUENCE)
+CONSEQUENCE = {
+    WEALTHY_ROB = "consequence:wealthy_rob",
+    WEALTHY_AMBUSH = "consequence:wealthy_ambush",
+    PREDATOR_ALERT = "consequence:predator_alert",
+    PREDATOR_FLEE = "consequence:predator_flee",
+}
+
+--- Action names for xtrace path
+ACTION = {
+    ASSESS_WEALTH = "action:assess_wealth",
+    SCAN_PREDATORS = "action:scan_predators",
+}
+
+--- Reason codes (extends ap_const.REASON)
+REASON = {
+    LOW_WEALTH = "low_wealth",
+    NO_OUTLAWS = "no_outlaws",
+    NO_PREDATOR = "no_predator",
+    NOT_STALKER = "not_stalker",
+    LEVEL_DEPOPULATED = "level_depopulated",
+}
+
+--- Wealth score thresholds
+WEALTH_SCORE_MAX = 100
+WEALTH_ELITE_WEIGHT = 12
+WEALTH_ARTEFACT_WEIGHT = 15
+WEALTH_MONEY_DIVISOR = 50000
+WEALTH_OUTFIT_TIER_WEIGHT = 10
+WEALTH_EVAL_COOLDOWN_SEC = 30
+
+--- Outfit tier detection patterns
+OUTFIT_TIER_PATTERNS = {
+    { tier = 3, patterns = { "exo", "heavy", "nosorog", "skat" } },
+    { tier = 2, patterns = { "medium", "scientific", "dolg", "freedom", "csky", "military" } },
+    { tier = 1, patterns = { "light", "leather", "bandit", "novice" } },
+}
+
+--- Factions that rob or ambush
+community_robber = {
+    ["bandit"] = true, ["renegade"] = true, ["greh"] = true, ["isg"] = true, ["killer"] = true,
+}
+community_ambusher_wealthy = {
+    ["bandit"] = true, ["renegade"] = true, ["killer"] = true,
+}
+
+--- Population safeguard
+POPULATION_CHECK_INTERVAL_SEC = 60
+POPULATION_MIN_SQUADS_ON_LEVEL = 8
+
+--- SISKI bridge event names
+BRIDGE_EVENT = {
+    AP_CAUSE_RECEIVED = "aps_cause_received",
+    AP_SQUAD_RELEASED = "aps_squad_released",
+    SISKI_TASK_CHANGED = "aps_siski_task_changed",
+    LEVEL_DEPOPULATED = "aps_level_depopulated",
+    LEVEL_REPOPULATED = "aps_level_repopulated",
+}
+
+--- Tension
+TENSION_MAX = 100
+TENSION_DECAY_INTERVAL_SEC = 300
+TENSION_DECAY_AMOUNT = 5
+TENSION_VENDETTA_COOLDOWN_SEC = 600
+
+--- Cause weights for tension
+TENSION_WEIGHTS = {
+    ["cause:squadkill"] = 15,
+    ["cause:basekill"] = 25,
+    ["cause:massacre"] = 20,
+    ["cause:elitekill"] = 10,
+}
+
+--- Loot bridge
+LOOT_BRIDGE_EVENT = "aps_massacre_loot_site"
+LOOT_BRIDGE_DELAY_SEC = 10
+
+--- Difficulty scaling
+DIFFICULTY_LOW_POP_THRESHOLD = 12
+DIFFICULTY_HIGH_POP_THRESHOLD = 20
+DIFFICULTY_LOW_MULTIPLIER = 0.5
+DIFFICULTY_HIGH_MULTIPLIER = 1.25
+
+--- Danger zones
+DANGER_ZONE_CHECK_SEC = 120
+DANGER_ZONE_MARKER_TYPE = "red_location"
+DANGER_ZONE_MUTANT_THRESHOLD = 3
+DANGER_ZONE_MAX_MARKERS = 8
+
+--- Weather modifiers
+WEATHER_CHECK_SEC = 60
+WEATHER_EMISSION_ROBBERY_MULT = 0.1
+WEATHER_EMISSION_PREDATOR_MULT = 2.0
+WEATHER_NIGHT_ROBBERY_MULT = 1.5
+WEATHER_NIGHT_PREDATOR_MULT = 1.3
+WEATHER_NIGHT_START_HOUR = 22
+WEATHER_NIGHT_END_HOUR = 5
+
+--- Trade intel
+TRADE_INTEL_RECENT_VISIT_MS = 300000
+
+if printf then printf('[APS] _aps_const loaded') end

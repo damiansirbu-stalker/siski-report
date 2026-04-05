@@ -1,0 +1,160 @@
+--- aps_risk_eval: NPC risk vs reward evaluation
+---
+--- Before an NPC squad acts on a consequence (robbery, ambush, vendetta),
+--- this module evaluates whether the action makes sense for that specific squad.
+---
+--- RISK FACTORS (make action less likely):
+---   - Target is a high-threat player (tracked by player_intel)
+---   - Squad has low member count (weakened from previous fights)
+---   - Squad is far from friendly territory (long retreat if things go wrong)
+---   - Squad personality is cautious
+---
+--- REWARD FACTORS (make action more likely):
+---   - Target wealth is very high (big payout)
+---   - Squad personality is greedy/aggressive
+---   - Squad has elite status (confident in their strength)
+---   - Squad has numerical advantage (outnumbers the target)
+---
+--- Returns a go/no-go decision with a confidence score.
+--- Consequences call aps_risk_eval.should_engage() before committing.
+
+local type, math_min, math_max, math_floor = type, math.min, math.max, math.floor
+
+-- ============================================================================
+-- Public API
+-- ============================================================================
+
+--- Evaluate whether a squad should engage a target
+--- @param squad_id number Attacking squad ID
+--- @param target_wealth number Target wealth score (0-100)
+--- @param target_is_player boolean Is the target the player?
+--- @param action_type string "robbery"|"ambush"|"vendetta"|"predator"
+--- @return boolean should_engage, number confidence (0-100), string reason
+function should_engage(squad_id, target_wealth, target_is_player, action_type)
+    if not squad_id then return true, 50, "no_squad_data" end
+
+    local personality = aps_personality.get(squad_id)
+    local risk_score = 0
+    local reward_score = 0
+
+    -- ========================================================================
+    -- REWARD calculation
+    -- ========================================================================
+
+    --- Wealth reward (0-40 points)
+    reward_score = reward_score + math_min(40, math_floor(target_wealth * 0.4))
+
+    --- Greed amplifier (0-20 points)
+    reward_score = reward_score + math_floor(personality.greed * 20)
+
+    --- Aggression bonus for combat actions (0-15 points)
+    if action_type == "vendetta" or action_type == "predator" then
+        reward_score = reward_score + math_floor(personality.aggression * 15)
+    end
+
+    --- Elite confidence (0-10 points)
+    if ap_alife_tracker and ap_alife_tracker.get_elite_level then
+        local se = xobject.se(squad_id)
+        if se then
+            local cmd_id = se:commander_id()
+            if cmd_id then
+                local elite_level = ap_alife_tracker.get_elite_level(cmd_id)
+                reward_score = reward_score + math_min(10, elite_level * 2)
+            end
+        end
+    end
+
+    -- ========================================================================
+    -- RISK calculation
+    -- ========================================================================
+
+    --- Player threat (0-30 points of risk)
+    if target_is_player and aps_player_intel then
+        local threat = aps_player_intel.get_player_threat()
+        risk_score = risk_score + math_floor(threat * 15)
+
+        --- Experienced players get extra risk (outlaws learn you're dangerous)
+        local maturity = aps_player_intel.get_data_maturity()
+        if maturity >= 5 and threat > 1.0 then
+            risk_score = risk_score + 10
+        end
+    end
+
+    --- Caution personality (0-20 points of risk)
+    risk_score = risk_score + math_floor(personality.caution * 20)
+
+    --- Squad weakness: check online member count
+    local se = xobject.se(squad_id)
+    if se then
+        local npc_count = se:npc_count()
+        if npc_count <= 1 then
+            risk_score = risk_score + 15
+        elseif npc_count <= 2 then
+            risk_score = risk_score + 5
+        end
+    end
+
+    -- ========================================================================
+    -- Decision
+    -- ========================================================================
+
+    local confidence = reward_score - risk_score + 50
+    confidence = math_min(100, math_max(0, confidence))
+
+    --- Threshold: engage if confidence > 35 (slightly below neutral)
+    --- This means most NPCs will engage unless risks clearly outweigh rewards
+    local threshold = 35
+    local should = confidence > threshold
+
+    if not should then
+        _aps_log.info("[RISK_EVAL] NO_GO: sq=%d action=%s conf=%d reward=%d risk=%d (greed=%.1f caut=%.1f)",
+            squad_id, action_type, confidence, reward_score, risk_score,
+            personality.greed, personality.caution)
+    else
+        _aps_log.info("[RISK_EVAL] GO: sq=%d action=%s conf=%d reward=%d risk=%d",
+            squad_id, action_type, confidence, reward_score, risk_score)
+    end
+
+    local reason = should and "confident" or "too_risky"
+    return should, confidence, reason
+end
+
+--- Quick check: should this squad pursue a wealthy target?
+--- Combines personality greed + player threat + wealth evaluation
+--- @param squad_id number
+--- @param target_wealth number
+--- @param target_is_player boolean
+--- @return boolean
+function should_rob(squad_id, target_wealth, target_is_player)
+    return should_engage(squad_id, target_wealth, target_is_player, "robbery")
+end
+
+--- Quick check: should this squad flee from predators?
+--- Low caution + high aggression = stand and fight
+--- @param squad_id number
+--- @return boolean should_flee
+function should_flee_predator(squad_id)
+    local personality = aps_personality.get(squad_id)
+    local bravery = personality.aggression * 0.6 + (1 - personality.caution) * 0.4
+    local should_flee = bravery < 0.5
+    return should_flee
+end
+
+--- Quick check: should this squad join a vendetta?
+--- High loyalty + high aggression = yes
+--- @param squad_id number
+--- @return boolean
+function should_join_vendetta(squad_id)
+    local personality = aps_personality.get(squad_id)
+    local commitment = personality.loyalty * 0.6 + personality.aggression * 0.4
+    return commitment > 0.4
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+function on_game_start()
+    _aps_log.info("[APS.RISK_EVAL] Initialized")
+end
+if printf then printf('[APS] aps_risk_eval loaded') end

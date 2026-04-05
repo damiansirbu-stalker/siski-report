@@ -1,0 +1,137 @@
+--- aps_log: Dedicated logger for AlifePlus SISKI Synergy
+---
+--- Writes to appdata/logs/aps_synergy.log (relative, beside alifeplus.log).
+--- Uses xlog when available, falls back to direct io.open.
+--- Also prints critical messages to the in-game console via printf().
+---
+--- WHY: ap_debug writes to alifeplus.log but may not capture our init
+--- messages if our on_game_start timing is wrong. This logger gives us
+--- an independent file that users can send for debugging.
+
+local _logger = nil
+local _fallback_path = nil
+local _initialized = false
+
+-- ============================================================================
+-- Fallback: direct file write (no xlog dependency)
+-- ============================================================================
+
+local function _get_fallback_path()
+    if _fallback_path then return _fallback_path end
+    --- Try to find the logs directory relative to the game
+    local test_paths = {
+        "appdata/logs/aps_synergy.log",
+        "logs/aps_synergy.log",
+        "aps_synergy.log",
+    }
+    for _, path in ipairs(test_paths) do
+        local f = io.open(path, "a")
+        if f then
+            f:close()
+            _fallback_path = path
+            return path
+        end
+    end
+    return nil
+end
+
+local function _write_fallback(level, msg)
+    local path = _get_fallback_path()
+    if not path then return end
+    local f = io.open(path, "a")
+    if not f then return end
+    local ts = os.date("%Y-%m-%d %H:%M:%S")
+    f:write(string.format("[%s][%s] %s\n", ts, level, msg))
+    f:close()
+end
+
+-- ============================================================================
+-- Public API
+-- ============================================================================
+
+--- Log an info message
+function info(fmt, ...)
+    local msg = string.format(fmt, ...)
+    if _logger then
+        _logger.info(msg)
+    else
+        _write_fallback("INFO", msg)
+    end
+end
+
+--- Log a warning
+function warn(fmt, ...)
+    local msg = string.format(fmt, ...)
+    if _logger then
+        _logger.warn(msg)
+    else
+        _write_fallback("WARN", msg)
+    end
+end
+
+--- Log an error
+function err(fmt, ...)
+    local msg = string.format(fmt, ...)
+    if _logger then
+        _logger.error(msg)
+    else
+        _write_fallback("ERROR", msg)
+    end
+end
+
+--- Log a debug message
+function debug(fmt, ...)
+    local msg = string.format(fmt, ...)
+    if _logger then
+        _logger.debug(msg)
+    else
+        _write_fallback("DEBUG", msg)
+    end
+end
+
+--- Print to in-game console (always works, even if logging fails)
+function console(fmt, ...)
+    local msg = string.format("[APS] " .. fmt, ...)
+    if printf then
+        printf(msg)
+    end
+end
+
+--- Force flush the log buffer to disk
+function flush()
+    if _logger and _logger.flush_buffer then
+        pcall(_logger.flush_buffer, _logger)
+    end
+end
+
+-- ============================================================================
+-- Initialization
+-- ============================================================================
+
+--- Try to create an xlog logger (best option)
+local function _try_xlog()
+    if not xlog or not xlog.get_logger then return nil end
+    local ok, logger = pcall(xlog.get_logger, "APS", { outfile = "aps_synergy.log" })
+    if ok and logger then return logger end
+    return nil
+end
+
+function on_game_start()
+    _logger = _try_xlog()
+    _initialized = true
+
+    if _logger then
+        info("=== APS Session started (xlog) ===")
+    else
+        _write_fallback("INFO", "=== APS Session started (fallback) ===")
+    end
+end
+
+-- ============================================================================
+-- Module-level: immediate console print to prove we loaded
+-- ============================================================================
+
+if printf then
+    printf("[APS] _aps_log.script loaded")
+end
+if printf then printf('[APS] _aps_log loaded') end

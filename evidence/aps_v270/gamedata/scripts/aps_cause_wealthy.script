@@ -1,0 +1,281 @@
+--- aps_cause_wealthy: Detects wealthy entities that attract robbery
+---
+--- TRIGGER LOGIC (three paths):
+---
+--- 1. RADIANT (enter_smart, leave_smart, actor_on_smart)
+---    When any stalker squad transitions between smart terrains OR the player
+---    walks near a smart, that squad's wealth is evaluated. This catches squads
+---    in motion — the most visible and vulnerable targets.
+---    Frequency: fires on every smart transition, throttled by AP's radiant
+---    token bucket (distributor_interval_sec, default 5s).
+---
+--- 2. REACTIVE (actor_on_item_take, npc_on_item_take)
+---    When the player picks up ANY item, their wealth is re-evaluated.
+---    When an NPC picks up an item, their squad's wealth is evaluated.
+---    This catches the moment someone becomes rich (artefact pickup, looting).
+---    Frequency: fires per item pickup, no AP token bucket (reactive path).
+---
+--- 3. PERIODIC SWEEP (every 5 minutes game time via timer)
+---    Scans online squads near the player for high wealth.
+---    This catches wealthy NPCs who are stationary — sitting at a campfire
+---    with expensive gear, or camping at a base with artefacts.
+---    Without this, a wealthy squad that never moves is invisible to robbers.
+---    Frequency: every 300 game-seconds (~5 min), scans up to 10 nearby squads.
+---
+--- PER-ENTITY COOLDOWN: 120 seconds (os.clock). Once evaluated, an entity
+--- won't be re-evaluated for 2 minutes regardless of which path triggered it.
+--- This prevents a squad being chased by robbers from immediately triggering
+--- more robbers on the next smart transition.
+---
+--- YANS: same evaluation logic for player and NPCs. The only difference is
+--- the player has actor:money() available; NPC money is estimated from elite level.
+
+local CAUSE = _aps_const.CAUSE
+local CALLBACK = ap_const.CALLBACK
+local RESULT = ap_const.RESULT
+local REASON = ap_const.REASON
+
+local cfg
+local os_clock = os.clock
+local ResetTimeEvent, CreateTimeEvent = ResetTimeEvent, CreateTimeEvent
+local RegisterScriptCallback = RegisterScriptCallback
+
+--- Per-entity cooldown to avoid spamming wealthy events
+local _eval_at = {}
+local SWEEP_INTERVAL_SEC = 300
+local SWEEP_MAX_SQUADS = 10
+
+-- ============================================================================
+-- Cooldown check
+-- ============================================================================
+
+local function _on_cooldown(entity_id)
+    local now = os_clock()
+    if _eval_at[entity_id] and now - _eval_at[entity_id] < _aps_const.WEALTH_EVAL_COOLDOWN_SEC then
+        return true
+    end
+    return false
+end
+
+local function _mark_evaluated(entity_id)
+    _eval_at[entity_id] = os_clock()
+end
+
+-- ============================================================================
+-- Shared evaluation: build cause payload from score
+-- ============================================================================
+
+local function _build_payload(squad_id, is_player, score, breakdown, position, level_id, community)
+    return {
+        cause = CAUSE.WEALTHY,
+        squad_id = squad_id,
+        target_is_player = is_player,
+        wealth_score = score,
+        wealth_outfit = breakdown.outfit_tier,
+        wealth_elite = breakdown.elite_level,
+        wealth_artefacts = breakdown.artefact_count,
+        position = position,
+        level_id = level_id,
+        community = community,
+    }
+end
+
+-- ============================================================================
+-- PATH 1: Radiant — squad smart transitions
+-- ============================================================================
+
+local function _on_radiant(trace, squad)
+    if not cfg.cause_wealthy_enabled then return nil end
+    if not squad then return nil end
+
+    local community = xcreature.community(squad.id)
+    if not community or not ap_data.community_stalker[community] then return nil end
+
+    local unscriptable = xsquad.is_unscriptable_squad and xsquad.is_unscriptable_squad(squad)
+    if unscriptable then return nil end
+
+    if _on_cooldown(squad.id) then return nil end
+
+    local level_id = xlevel.get_level_id(squad)
+    if not level_id then return nil end
+
+    local score, breakdown = aps_wealth.score_squad(squad.id, squad)
+    if score < cfg.cause_wealthy_threshold then return nil end
+
+    _mark_evaluated(squad.id)
+
+    return _build_payload(squad.id, false, score, breakdown, squad.position, level_id, community)
+end
+
+-- ============================================================================
+-- PATH 2: Reactive — item pickup
+-- ============================================================================
+
+local function _on_actor_take(trace, item)
+    if not cfg.cause_wealthy_enabled then return nil end
+    if not item then return nil end
+
+    local actor = db.actor
+    if not actor then return nil end
+
+    if _on_cooldown(0) then return nil end
+
+    --- Skip if at base
+    local smart = xsmart.get_actor_smart()
+    if smart and xsmart.is_base(smart) then return nil end
+
+    local score, breakdown = aps_wealth.score_actor()
+    if score < cfg.cause_wealthy_threshold then return nil end
+
+    _mark_evaluated(0)
+
+    return _build_payload(nil, true, score, breakdown, actor:position(), xlevel.get_actor_level_id(), "stalker")
+end
+
+local function _on_npc_take(trace, npc, item)
+    if not cfg.cause_wealthy_enabled then return nil end
+    if not npc or not item then return nil end
+
+    local squad = xsquad.get_squad_by_member(npc:id())
+    if not squad then return nil end
+
+    local unscriptable = xsquad.is_unscriptable_squad and xsquad.is_unscriptable_squad(squad)
+    if unscriptable then return nil end
+
+    if _on_cooldown(squad.id) then return nil end
+
+    local level_id = xlevel.get_level_id(squad)
+    if not level_id then return nil end
+
+    local score, breakdown = aps_wealth.score_squad(squad.id, squad)
+    if score < cfg.cause_wealthy_threshold then return nil end
+
+    _mark_evaluated(squad.id)
+
+    return _build_payload(squad.id, false, score, breakdown, npc:position(), level_id, xcreature.community(squad.id))
+end
+
+-- ============================================================================
+-- PATH 3: Periodic sweep — catch stationary wealthy squads
+-- ============================================================================
+
+local function _periodic_sweep()
+    ResetTimeEvent("aps_wealthy", "sweep", SWEEP_INTERVAL_SEC)
+
+    if not cfg.cause_wealthy_enabled then return end
+    if not cfg.cause_wealthy_sweep_enabled then return end
+
+    local actor = db.actor
+    if not actor then return end
+
+    --- Skip if at base
+    local actor_smart = xsmart.get_actor_smart()
+    if actor_smart and xsmart.is_base(actor_smart) then return end
+
+    local actor_level = xlevel.get_actor_level_id()
+    if not actor_level then return end
+
+    --- Find online stalker squads near the player
+    local squads = xsquad.find_online_squads(actor:position(), {
+        factions = ap_data.community_stalker,
+        max_count = SWEEP_MAX_SQUADS,
+        exclude_unscriptable = true,
+    })
+
+    if not squads or #squads == 0 then return end
+
+    local found = 0
+    for _, squad in ipairs(squads) do
+        if _on_cooldown(squad.id) then goto continue end
+
+        local score, breakdown = aps_wealth.score_squad(squad.id, squad)
+        if score < cfg.cause_wealthy_threshold then goto continue end
+
+        _mark_evaluated(squad.id)
+
+        local community = xcreature.community(squad.id)
+        local result = _build_payload(squad.id, false, score, breakdown,
+            squad.position, actor_level, community)
+
+        --- Publish directly (sweep bypasses producer pipeline, goes straight to xbus)
+        result._trace = ap_debug.trace()
+        ap_utils.event_publish(result.cause, result)
+        ap_utils.increment_cause_counter("CAUSE.WEALTHY")
+        found = found + 1
+
+        ap_debug.debug("[CAUSE.WEALTHY] SWEEP: squad=%d score=%d outfit=%d elite=%d artefacts=%d",
+            squad.id, score, breakdown.outfit_tier, breakdown.elite_level, breakdown.artefact_count)
+
+        ::continue::
+    end
+
+    if found > 0 then
+        ap_debug.debug("[CAUSE.WEALTHY] sweep found %d wealthy squads near player", found)
+    end
+end
+
+--- Also evaluate the player during sweep
+local function _sweep_player()
+    if not cfg.cause_wealthy_enabled then return end
+    if not cfg.cause_wealthy_sweep_enabled then return end
+    if _on_cooldown(0) then return end
+
+    local actor = db.actor
+    if not actor then return end
+
+    local smart = xsmart.get_actor_smart()
+    if smart and xsmart.is_base(smart) then return end
+
+    local score, breakdown = aps_wealth.score_actor()
+    if score < cfg.cause_wealthy_threshold then return end
+
+    _mark_evaluated(0)
+
+    local result = _build_payload(nil, true, score, breakdown,
+        actor:position(), xlevel.get_actor_level_id(), "stalker")
+    result._trace = ap_debug.trace()
+    ap_utils.event_publish(result.cause, result)
+    ap_utils.increment_cause_counter("CAUSE.WEALTHY")
+
+    ap_debug.debug("[CAUSE.WEALTHY] SWEEP_PLAYER: score=%d outfit=%d artefacts=%d",
+        score, breakdown.outfit_tier, breakdown.artefact_count)
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+function on_game_start()
+    cfg = aps_mcm.cfg
+    _eval_at = {}
+
+    --- PATH 1: Radiant callbacks
+    for i = 1, #ap_const.RADIANT_CALLBACKS do
+        ap_producer_reactive.register(CAUSE.WEALTHY, {
+            callback = ap_const.RADIANT_CALLBACKS[i],
+            priority = 80,
+        }, _on_radiant)
+    end
+
+    --- PATH 2: Reactive callbacks
+    ap_producer_reactive.register(CAUSE.WEALTHY, {
+        callback = CALLBACK.ACTOR_ON_ITEM_TAKE,
+        priority = 80,
+    }, _on_actor_take)
+
+    ap_producer_reactive.register(CAUSE.WEALTHY, {
+        callback = CALLBACK.NPC_ON_ITEM_TAKE,
+        priority = 80,
+    }, _on_npc_take)
+
+    --- PATH 3: Periodic sweep
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, function()
+        CreateTimeEvent("aps_wealthy", "sweep", SWEEP_INTERVAL_SEC, function()
+            _periodic_sweep()
+            _sweep_player()
+        end)
+    end)
+
+    _aps_log.info("[CAUSE.WEALTHY] Initialized (radiant + reactive + sweep@%ds)", SWEEP_INTERVAL_SEC)
+end
+if printf then printf('[APS] aps_cause_wealthy loaded') end

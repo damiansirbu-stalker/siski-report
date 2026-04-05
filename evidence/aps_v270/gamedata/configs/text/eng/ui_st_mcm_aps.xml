@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<string_table>
+	<string id="ui_mcm_menu_aps">
+		<text>AP-SISKI Synergy</text>
+	</string>
+	<string id="ui_mcm_aps_title">
+		<text>AlifePlus SISKI Synergy</text>
+	</string>
+	<string id="ui_mcm_aps_desc">
+		<text>Bridges AlifePlus and SISKI with new emergent behaviors: wealth-based robbery, predator alerts, faction tension, population safeguard. Requires both AlifePlus and SISKI. YANS: same rules for player and NPCs.</text>
+	</string>
+
+	<!-- Population Safeguard -->
+	<string id="ui_mcm_aps_pop_title">
+		<text>Population Safeguard</text>
+	</string>
+	<string id="ui_mcm_aps_population_safeguard_enabled">
+		<text>Enable Population Safeguard</text>
+	</string>
+	<string id="ui_mcm_aps_population_min_squads">
+		<text>Minimum Squads on Level</text>
+	</string>
+
+	<!-- Wealthy -->
+	<string id="ui_mcm_aps_wealthy_title">
+		<text>Wealthy Target System</text>
+	</string>
+	<string id="ui_mcm_aps_cause_wealthy_enabled">
+		<text>Enable Wealth Detection</text>
+	</string>
+	<string id="ui_mcm_aps_cause_wealthy_threshold">
+		<text>Wealth Threshold (0-100)</text>
+	</string>
+	<string id="ui_mcm_aps_cause_wealthy_sweep_enabled">
+		<text>Enable Periodic Wealth Sweep</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_wealthy_rob_enabled">
+		<text>Enable Robbery</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_wealthy_rob_chance">
+		<text>Robbery Chance (%)</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_wealthy_rob_max_squads">
+		<text>Max Robber Squads</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_wealthy_rob_max_chases">
+		<text>Max Chase Iterations</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_wealthy_rob_rush">
+		<text>Robbers Rush (run)</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_wealthy_rob_crosslevel">
+		<text>Enable Cross-Level Rumors</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_wealthy_rob_pda_chance">
+		<text>Robbery PDA Chance (%)</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_wealthy_ambush_enabled">
+		<text>Enable Ambush</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_wealthy_ambush_chance">
+		<text>Ambush Chance (%)</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_wealthy_ambush_max_squads">
+		<text>Max Ambush Squads</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_wealthy_ambush_rush">
+		<text>Ambushers Rush (run)</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_wealthy_ambush_pda_chance">
+		<text>Ambush PDA Chance (%)</text>
+	</string>
+
+	<!-- Predator -->
+	<string id="ui_mcm_aps_predator_title">
+		<text>Predator Alert System</text>
+	</string>
+	<string id="ui_mcm_aps_cause_predator_enabled">
+		<text>Enable Predator Detection</text>
+	</string>
+	<string id="ui_mcm_aps_cause_predator_detect_radius">
+		<text>Detection Radius (m)</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_predator_alert_enabled">
+		<text>Enable Predator Alert</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_predator_alert_chance">
+		<text>Alert Chance (%)</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_predator_alert_max_squads">
+		<text>Max Fleeing Squads</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_predator_alert_pda_chance">
+		<text>Alert PDA Chance (%)</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_predator_flee_enabled">
+		<text>Enable Predator Flee</text>
+	</string>
+	<string id="ui_mcm_aps_consequence_predator_flee_chance">
+		<text>Flee Chance (%)</text>
+	</string>
+
+	<!-- Tension -->
+	<string id="ui_mcm_aps_tension_title">
+		<text>Faction Tension System</text>
+	</string>
+	<string id="ui_mcm_aps_tension_enabled">
+		<text>Enable Faction Tension</text>
+	</string>
+	<string id="ui_mcm_aps_tension_vendetta_threshold">
+		<text>Vendetta Threshold (0-100)</text>
+	</string>
+	<string id="ui_mcm_aps_tension_vendetta_pda_chance">
+		<text>Vendetta PDA Chance (%)</text>
+	</string>
+
+	<!-- Dynamic Difficulty -->
+	<string id="ui_mcm_aps_diff_title">
+		<text>Dynamic Difficulty</text>
+	</string>
+	<string id="ui_mcm_aps_difficulty_scaling_enabled">
+		<text>Enable Dynamic Difficulty Scaling</text>
+	</string>
+
+	<!-- Weather -->
+	<string id="ui_mcm_aps_weather_title">
+		<text>Weather Modifiers</text>
+	</string>
+	<string id="ui_mcm_aps_weather_modifiers_enabled">
+		<text>Enable Weather-Driven Behavior</text>
+	</string>
+
+	<!-- Danger Zones -->
+	<string id="ui_mcm_aps_danger_title">
+		<text>Danger Zones</text>
+	</string>
+	<string id="ui_mcm_aps_danger_zones_enabled">
+		<text>Enable Mutant Danger Zones</text>
+	</string>
+	<string id="ui_mcm_aps_danger_zones_markers_enabled">
+		<text>Show PDA Markers for Danger Zones</text>
+	</string>
+	<string id="ui_mcm_aps_bounty_enabled">
+		<text>Enable Bounty System</text>
+	</string>
+	<string id="ui_mcm_aps_bounty_tension_threshold">
+		<text>Bounty Tension Threshold (30-50)</text>
+	</string>
+	<string id="ui_mcm_aps_bounty_base_amount">
+		<text>Base Bounty Amount (RU)</text>
+	</string>
+	<string id="ui_mcm_aps_bounty_decay_rate">
+		<text>Bounty Decay Rate (% per hour)</text>
+	</string>
+	<string id="ui_mcm_aps_bounty_snitch_report_enabled">
+		<text>Enable Daily Snitch Report (PDA)</text>
+	</string>
+	<string id="ui_mcm_aps_bosses_enabled">
+		<text>Enable Emergent Boss System</text>
+	</string>
+</string_table>

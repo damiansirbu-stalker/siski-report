@@ -1,0 +1,84 @@
+local function is_guard_squad_section(section_name)
+    if guards_spawner and guards_spawner.is_guard_squad_section then
+        return guards_spawner.is_guard_squad_section(section_name) == true
+    end
+    return type(section_name) == "string" and string.find(section_name, "_sim_squad_guard_", 1, true) ~= nil
+end
+
+local function get_squad_section_name(squad)
+    if not squad then return nil end
+    if squad.section_name then
+        return squad:section_name()
+    end
+    return nil
+end
+
+local function set_guard_target(squad, smart_name)
+    if guards_spawner and guards_spawner.set_guard_target then
+        return guards_spawner.set_guard_target(squad, smart_name)
+    end
+    if not (squad and smart_name) then
+        return false
+    end
+    squad.scripted_target = smart_name
+    squad.current_action = 0
+    squad.current_target_id = nil
+    squad.stay_time = nil
+    squad.arrive_time = nil
+    return true
+end
+
+function actor_on_first_update()
+    if guards_spawner and guards_spawner.sanitize_guard_registry then
+        guards_spawner.sanitize_guard_registry()
+    end
+end
+
+function squad_on_update(squad)
+    if xr_conditions.surge_started() then return end
+    if not squad then return end
+
+    local section_name = get_squad_section_name(squad)
+    if not is_guard_squad_section(section_name) then
+        return
+    end
+
+    local smart_name = get_guard_smart(squad)
+    if smart_name and squad.scripted_target ~= smart_name and (axr_companions.companion_squads[squad.id] == nil) then
+        set_guard_target(squad, smart_name)
+        local gg = game_graph()
+        local squad_lid = gg:vertex(squad.m_game_vertex_id):level_id()
+        local squad_lname = alife():level_name(squad_lid)
+        printf("~ fixing squad IS guard: %s, cur_level: %s, send to %s", squad.id, squad_lname, smart_name)
+        return
+    end
+end
+
+function get_guard_smart(squad)
+    if not squad then return nil end
+    local section_name = get_squad_section_name(squad)
+    if not is_guard_squad_section(section_name) then
+        return nil
+    end
+
+    local guard_by_id = guards_spawner and guards_spawner.guarded_smarts_by_id
+    if guard_by_id and guard_by_id[squad.id] then
+        return guard_by_id[squad.id]
+    end
+
+    local guard_t = guards_spawner and guards_spawner.guarded_smarts
+    if not guard_t then return end
+
+    for smart_name, sq_a in pairs(guard_t) do
+        for i = 1, #sq_a do
+            if sq_a[i] == squad.id then
+                return smart_name
+            end
+        end
+    end
+end
+
+function on_game_start()
+    RegisterScriptCallback("actor_on_first_update", actor_on_first_update)
+    RegisterScriptCallback("squad_on_update", squad_on_update)
+end

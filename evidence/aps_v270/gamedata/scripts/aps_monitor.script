@@ -1,0 +1,213 @@
+--- aps_monitor: Runtime event monitor for aps_synergy.log
+---
+--- Subscribes to ALL AP causes via xbus and logs what fires, what gets
+--- blocked, and what consequences execute. Also logs SISKI bus events.
+--- This gives us a complete picture of what's happening in the Zone
+--- without requiring AP's log_level=DEBUG.
+---
+--- Everything goes to _aps_log (aps_synergy.log), making it the single
+--- file users send for debugging.
+
+local type, tostring, pairs, ipairs, pcall = type, tostring, pairs, ipairs, pcall
+local string_format = string.format
+local RegisterScriptCallback = RegisterScriptCallback
+local os_clock = os.clock
+
+local CALLBACK = ap_const.CALLBACK
+
+local _last_pop_log = 0
+local _last_weather_log = 0
+local POP_LOG_INTERVAL = 120
+local WEATHER_LOG_INTERVAL = 300
+
+-- ============================================================================
+-- AP cause event logger: subscribe to every AP cause and log it
+-- ============================================================================
+
+local _ap_causes = {
+    "cause:elite", "cause:elitekill", "cause:massacre", "cause:squadkill",
+    "cause:basekill", "cause:area", "cause:wounded", "cause:stash",
+    "cause:harvest", "cause:needs",
+    "cause:wealthy", "cause:predator",
+}
+
+local function _log_cause(cause_name)
+    return function(event_data)
+        if type(event_data) ~= "table" then return end
+        local parts = { cause_name }
+        if event_data.squad_id then parts[#parts + 1] = "sq=" .. tostring(event_data.squad_id) end
+        if event_data.level_id then parts[#parts + 1] = "lvl=" .. tostring(event_data.level_id) end
+        if event_data.target_is_player then parts[#parts + 1] = "TARGET=PLAYER" end
+        if event_data.wealth_score then parts[#parts + 1] = "wealth=" .. tostring(event_data.wealth_score) end
+        if event_data.threat_level then parts[#parts + 1] = "threat=" .. tostring(event_data.threat_level) end
+        if event_data.need then parts[#parts + 1] = "need=" .. tostring(event_data.need) end
+        if event_data.total_deaths then parts[#parts + 1] = "deaths=" .. tostring(event_data.total_deaths) end
+        if event_data.taker_is_player then parts[#parts + 1] = "taker=PLAYER" end
+        if event_data.artefact_section then parts[#parts + 1] = "artefact=" .. tostring(event_data.artefact_section) end
+        if event_data.community then parts[#parts + 1] = "faction=" .. tostring(event_data.community) end
+        if event_data.faction then parts[#parts + 1] = "faction=" .. tostring(event_data.faction) end
+        _aps_log.info("[EVENT] %s", table.concat(parts, " | "))
+    end
+end
+
+local function _subscribe_ap_causes()
+    for _, cause_name in ipairs(_ap_causes) do
+        local sub_name = "aps_monitor_" .. cause_name
+        if not xbus.has(cause_name, sub_name) then
+            xbus.subscribe(cause_name, _log_cause(cause_name), sub_name)
+        end
+    end
+    _aps_log.info("[MONITOR] Subscribed to %d AP causes", #_ap_causes)
+end
+
+-- ============================================================================
+-- SISKI event logger: subscribe to key SISKI bus events
+-- ============================================================================
+
+local _siski_events = {
+    "squad_on_npc_death",
+    "squad_on_first_update",
+    "squad_on_enter_smart",
+    "squad_on_leave_smart",
+    "ap_bridge_squad_owner_changed",
+}
+
+local function _subscribe_siski_events()
+    if not _G.siski or not _G.siski.bus then return end
+    local bus = _G.siski.bus
+
+    --- Log AP bridge ownership changes (handoff/reclaim)
+    bus.subscribe("ap_bridge_squad_owner_changed", "aps_monitor_ownership", function(payload)
+        if type(payload) ~= "table" then return end
+        _aps_log.info("[SISKI] ownership_change: sq=%s owned=%s source=%s",
+            tostring(payload.squad_id), tostring(payload.owned), tostring(payload.source))
+    end)
+
+    _aps_log.info("[MONITOR] Subscribed to SISKI bus events")
+end
+
+-- ============================================================================
+-- Periodic status: population, weather, difficulty
+-- ============================================================================
+
+local function _log_periodic_status()
+    local now = os_clock()
+
+    --- Population status (every 2 min)
+    if now - _last_pop_log >= POP_LOG_INTERVAL then
+        _last_pop_log = now
+        local count = aps_population.get_level_squad_count()
+        local safe = aps_population.is_level_safe()
+        local level_id = xlevel.get_actor_level_id()
+        _aps_log.info("[STATUS] population: level=%s squads=%d safe=%s",
+            tostring(level_id), count, tostring(safe))
+    end
+
+    --- Weather status (every 5 min)
+    if now - _last_weather_log >= WEATHER_LOG_INTERVAL then
+        _last_weather_log = now
+        local robbery_mult = aps_difficulty.get_multiplier("robbery")
+        local predator_mult = aps_difficulty.get_multiplier("predator")
+        local emission = aps_weather.is_emission_active()
+        local night = aps_weather.is_night()
+        _aps_log.info("[STATUS] weather: emission=%s night=%s robbery_mult=%.2f predator_mult=%.2f",
+            tostring(emission), tostring(night), robbery_mult, predator_mult)
+
+        --- Player intel status
+        if aps_player_intel then
+            local threat = aps_player_intel.get_player_threat()
+            local maturity = aps_player_intel.get_data_maturity()
+            local trend = aps_player_intel.get_wealth_trend()
+            _aps_log.info("[STATUS] player_intel: threat=%.2f sessions=%d wealth_trend=%.2f active=%s",
+                threat, maturity, trend, tostring(aps_player_intel.is_player_active_now()))
+        end
+
+        --- Personality count
+        local profile_count = 0
+        if aps_personality and aps_personality.get then
+            profile_count = xtable and xtable.count and xtable.count(_G.aps_personality and {} or {}) or 0
+        end
+    end
+end
+
+-- ============================================================================
+-- Wealth evaluation logger: hook into the cause to log scores
+-- ============================================================================
+
+local _orig_score_actor = nil
+local _orig_score_squad = nil
+
+local function _wrap_wealth_scoring()
+    if not aps_wealth then return end
+
+    --- Wrap score_actor to log results
+    if aps_wealth.score_actor then
+        _orig_score_actor = aps_wealth.score_actor
+        aps_wealth.score_actor = function()
+            local score, breakdown = _orig_score_actor()
+            if score > 0 then
+                _aps_log.info("[WEALTH] PLAYER score=%d outfit=%d elite=%d artefacts=%d money=%d",
+                    score, breakdown.outfit_tier or 0, breakdown.elite_level or 0,
+                    breakdown.artefact_count or 0, breakdown.money_score or 0)
+            end
+            return score, breakdown
+        end
+    end
+
+    --- Wrap score_squad to log high scores
+    if aps_wealth.score_squad then
+        _orig_score_squad = aps_wealth.score_squad
+        aps_wealth.score_squad = function(squad_id, se_squad)
+            local score, breakdown = _orig_score_squad(squad_id, se_squad)
+            if score >= (_aps_const.WEALTH_EVAL_COOLDOWN_SEC and 20 or 20) then
+                _aps_log.info("[WEALTH] NPC sq=%d score=%d outfit=%d elite=%d artefacts=%d task_bonus=%d",
+                    squad_id or 0, score, breakdown.outfit_tier or 0, breakdown.elite_level or 0,
+                    breakdown.artefact_count or 0, breakdown.task_bonus or 0)
+            end
+            return score, breakdown
+        end
+    end
+
+    _aps_log.info("[MONITOR] Wealth scoring wrapped for logging")
+end
+
+-- ============================================================================
+-- Tension logger
+-- ============================================================================
+
+local function _wrap_tension()
+    if not aps_tension then return end
+    if not aps_tension.get_worst_enemy then return end
+
+    --- Periodically log top tension pairs
+    local _last_tension_log = 0
+    local TENSION_LOG_INTERVAL = 300
+
+    --- We'll check tension in the periodic status
+end
+
+-- ============================================================================
+-- Lifecycle
+-- ============================================================================
+
+local function _on_first_update()
+    _subscribe_ap_causes()
+    _subscribe_siski_events()
+    _wrap_wealth_scoring()
+
+    --- Periodic status logger (every 30s check, logs at own intervals)
+    CreateTimeEvent("aps_monitor", "status", 30, function()
+        ResetTimeEvent("aps_monitor", "status", 30)
+        _log_periodic_status()
+    end)
+
+    _aps_log.info("[MONITOR] Runtime monitoring active")
+end
+
+function on_game_start()
+    _last_pop_log = 0
+    _last_weather_log = 0
+    RegisterScriptCallback(CALLBACK.ACTOR_ON_FIRST_UPDATE, _on_first_update)
+    _aps_log.info("[APS.MONITOR] Initialized")
+end
+if printf then printf('[APS] aps_monitor loaded') end
