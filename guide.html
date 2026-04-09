@@ -179,7 +179,14 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
     <li><a href="#what">What They Are</a></li>
     <li><a href="#license">License</a></li>
     <li><a href="#xlibs">xlibs Toolbox</a></li>
-    <li><a href="#alifeplus">AlifePlus Integration</a></li>
+    <li><a href="#alifeplus">AlifePlus Integration</a>
+      <ol>
+        <li><a href="#alifeplus">Register</a></li>
+        <li><a href="#alifeplus">Two Mods Collaborating</a></li>
+        <li><a href="#alifeplus">Listen</a></li>
+        <li><a href="#alifeplus">Coordinate</a></li>
+      </ol>
+    </li>
     <li><a href="#vision">Architecture</a></li>
   </ol>
 </nav>
@@ -189,7 +196,7 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
 
 <header>
   <h1>Using xlibs and AlifePlus</h1>
-  <p>Guide for mod authors &middot; Damian Sirbu &middot; 2026-04-05</p>
+  <p>Guide for mod authors &middot; Damian Sirbu &middot; 2026-04-09</p>
 </header>
 
 <div class="callout key">
@@ -202,12 +209,12 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
 
 <p><strong>xlibs</strong> is an engine abstraction layer for STALKER Anomaly. It wraps X-Ray engine APIs in safe Lua functions: squad operations, smart terrain queries, entity resolution, an event bus, MCM config, PDA messaging, logging, and profiling.</p>
 
-<p><strong>AlifePlus</strong> is a reactive behavior framework built on xlibs. Engine callbacks produce <strong>causes</strong> (a squad entered a smart terrain, an NPC died, a stash was looted). The pipeline routes causes to registered <strong>consequences</strong> (a nearby faction investigates, a revenge squad is dispatched). Throttling, protection, rate limiting, ownership, and lifecycle are handled by the framework. Mods register a predicate and a handler.</p>
+<p><strong>AlifePlus</strong> is a reactive framework built on xlibs. Engine callbacks produce <strong>causes</strong> (a squad entered a smart terrain, an NPC died, a stash was looted). Two pipelines handle the flow: an <strong>Event Pipeline</strong> that filters engine noise into meaningful cause events, and a <strong>Dispatch Pipeline</strong> that routes causes to registered <strong>consequences</strong> (a nearby faction investigates, a revenge squad is dispatched). Protection, rate limiting, ownership, and lifecycle are handled by the framework. Mods register a predicate and a handler. The codebase is split into <strong>core</strong> (ap_core_* - pipeline, lifecycle, protection) and <strong>ext</strong> (ap_ext_* - domain logic). Core never imports ext.</p>
 
 <div class="stack">
-  <div class="stack-layer stack-mods"><strong>Mods</strong><small>domain logic: predicate + handler</small></div>
-  <div class="stack-layer stack-ap"><strong>AlifePlus</strong><small>dispatcher, throttling, protection, cause/consequence routing, lifecycle</small></div>
-  <div class="stack-layer stack-xlibs"><strong>xlibs</strong><small>xbus, xsquad, xsmart, xlevel, xobject, xtime, xlog, xmcm</small></div>
+  <div class="stack-layer stack-mods"><strong>Your Mod</strong><small>domain logic: predicate + handler</small></div>
+  <div class="stack-layer stack-ap"><strong>AlifePlus Core</strong><small>ap_core_*: pipeline, gates, protection, ownership, squad lifecycle, rate limiting</small></div>
+  <div class="stack-layer stack-xlibs"><strong>xlibs</strong><small>xbus, xsquad, xsmart, xlevel, xobject, xtime, xlog, xmcm, xtrace, xprofiler</small></div>
   <div class="stack-layer stack-engine"><strong>X-Ray Engine</strong><small>callbacks, luabind, server objects, A-Life simulation</small></div>
 </div>
 
@@ -256,47 +263,179 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
 
 <!-- ALIFEPLUS -->
 <section id="alifeplus">
-<h2>AlifePlus: Three Levels of Integration</h2>
+<h2>AlifePlus Integration</h2>
 
-<h3>Level 1: Listen to events (easiest, no AP internals)</h3>
-<p>Subscribe to AlifePlus cause events via xbus. This is the recommended starting point.</p>
-<pre><code>function on_game_start()
-    xbus.subscribe("cause:massacre", function(data)
-        -- data.position, data.level_id, data.total_deaths
-        my_response(data)
-    end, "my_mod_massacre")
-end</code></pre>
+<h3>Register: Add a Cause + Consequence</h3>
+<p>The primary way to extend AP. Register a predicate and a handler. The framework handles gates, protection, rate limiting, tracing, PDA routing, squad lifecycle.</p>
 
-<p>Available events: <code>cause:elite</code>, <code>cause:elitekill</code>, <code>cause:massacre</code>, <code>cause:squadkill</code>, <code>cause:basekill</code>, <code>cause:area</code>, <code>cause:wounded</code>, <code>cause:stash</code>, <code>cause:harvest</code>, <code>cause:needs</code>.</p>
+<pre><code>-- ap_ext_cause_ambush.script
+local CAUSE = ap_core_const.CAUSE
+local CAUSE_TYPE = ap_core_const.CAUSE_TYPE
+local cfg = ap_core_mcm.cfg
 
-<h3>Level 2: Register causes and consequences (intermediate)</h3>
-<p>Register your behavior with AP's pipeline. You get throttling, protection, rate limiting, and PDA for free.</p>
-<pre><code>-- Cause: detect something interesting
 local function _predicate(trace, squad)
-    if not is_interesting(squad) then return nil end
-    return { cause = "cause:my_event", squad_id = squad.id, ... }
-end
-
--- Consequence: react to it
-local function _handler(event_data)
-    if not xmath.chance(30) then return { code = ap_const.RESULT.CHANCE_NEXT } end
-    local squad = xobject.se(event_data.squad_id)
-    local base = xsmart.find_smart(squad.position, { filter = xsmart.is_base })
-    xsquad.control_squad(squad, base, true)
-    return { code = ap_const.RESULT.OK_STOP }
+    if not cfg.cause_ambush_enabled then return nil end
+    local smart = xsmart.nearest_empty(squad, 300)
+    if not smart then return nil end
+    return {
+        cause = CAUSE.AMBUSH,
+        squad_id = squad.id,
+        smart_id = smart.id,
+        level_id = xlevel.get_level_id(squad),
+        position = squad.position,
+    }
 end
 
 function on_game_start()
-    for i = 1, #ap_const.RADIANT_CALLBACKS do
-        ap_producer_reactive.register("cause:my_event",
-            { callback = ap_const.RADIANT_CALLBACKS[i] }, _predicate)
+    local cbs = ap_core_const.RADIANT_CALLBACKS
+    for i = 1, #cbs do
+        ap_core_producer.register(CAUSE.AMBUSH,
+            { callback = cbs[i], cause_type = CAUSE_TYPE.RADIANT },
+            _predicate)
     end
-    ap_consumer.register("consequence:my_reaction",
-        { event = "cause:my_event", priority = 20 }, _handler)
 end</code></pre>
 
-<h3>Level 3: Deep integration (coordinate first)</h3>
-<p>If you need access to AP's tracker, chase system, territory conquest, or other internal systems -- reach out via the <a href="https://github.com/damiansirbu-stalker">GitHub page</a>. These APIs are not yet stable or documented for external use. The plan is to stabilize them as proper public APIs based on what mod authors actually need.</p>
+<pre><code>-- ap_ext_consequence_ambush_setup.script
+local RESULT = ap_core_const.RESULT
+local REASON = ap_core_const.REASON
+local CONSEQUENCE = ap_core_const.CONSEQUENCE
+local CAUSE = ap_core_const.CAUSE
+local cfg = ap_core_mcm.cfg
+
+local function _handler(event_data)
+    if not cfg.consequence_ambush_setup_enabled then
+        return { code = RESULT.DISABLED_NEXT }
+    end
+    if not xmath.chance(cfg.consequence_ambush_setup_chance) then
+        return { code = RESULT.CHANCE_NEXT }
+    end
+    local smart = xobject.se(event_data.smart_id)
+    if not smart then
+        return { code = RESULT.RULES_NEXT, reason = REASON.NO_SMART }
+    end
+    local squads = ap_core_utils.find_squads_observed(event_data._trace, event_data.position, {
+        factions = ap_ext_const.community_outlaw,
+        level_id = event_data.level_id,
+        max_distance = ap_core_const.RADIUS_DISTANT_MAX,
+    })
+    if not squads or #squads == 0 then
+        return { code = RESULT.RULES_NEXT, reason = REASON.NO_SQUADS }
+    end
+    for i = 1, #squads do
+        ap_core_squad.script_squad(squads[i], smart, {
+            on_arrive = CONSEQUENCE.AMBUSH_SETUP,
+        })
+    end
+    return { code = RESULT.OK_STOP, count = #squads }
+end
+
+function on_game_start()
+    ap_core_consumer.register(CONSEQUENCE.AMBUSH_SETUP, {
+        event = CAUSE.AMBUSH,
+        priority = 20,
+    }, _handler)
+end</code></pre>
+
+<h3>Arrival behavior</h3>
+<p>Register an <code>on_arrive</code> function to run when the squad reaches its destination:</p>
+<pre><code>local function _on_arrive(squad, args)
+    -- runs when squad reaches destination
+end
+
+function on_game_start()
+    ap_core_consumer.register(CONSEQUENCE.AMBUSH_SETUP, {
+        event = CAUSE.AMBUSH,
+        priority = 20,
+        on_arrive = _on_arrive,
+    }, _handler)
+end</code></pre>
+<p>Link arrival to squad: pass <code>on_arrive = CONSEQUENCE.AMBUSH_SETUP</code> in <code>script_squad</code> opts.</p>
+
+<h3>Chase (re-script on arrival)</h3>
+<pre><code>local function _on_arrive(squad, args)
+    if not args then return end
+    local target = xobject.se(args.target_id)
+    if not target then return end
+    args.chase_count = (args.chase_count or 0) + 1
+    if args.chase_count > cfg.consequence_ambush_chase_max then return end
+    local smart = xsmart.get_smart(target)
+    if smart then
+        ap_core_squad.script_squad(squad, smart, {
+            rush = true,
+            on_arrive = CONSEQUENCE.AMBUSH_CHASE,
+            on_arrive_args = args,
+        })
+    end
+end</code></pre>
+
+<h3>Two Alife Mods Collaborating</h3>
+
+<p><code>scripted_target</code> is the engine's built-in coordination mechanism. When any mod sets <code>scripted_target</code> on a squad, the engine switches it from <code>generic_update</code> (simulation re-evaluation) to <code>specific_update</code> (direct A->B movement). Both mods check <code>scripted_target</code> before claiming a squad:</p>
+
+<pre><code>-- ModA before scripting:
+if se_squad.scripted_target then return end  -- AP (or anyone) has this squad
+se_squad.scripted_target = smart.id
+
+-- AP's PROTECTION gate already does this check automatically.</code></pre>
+
+<p>For identity (knowing WHO controls a squad), register an ownership filter:</p>
+
+<pre><code>-- In ModA's on_game_start:
+ap_core_squad.register_owner("warfare", function(squad)
+    return squad.registered_with_warfare == true
+end)</code></pre>
+
+<table>
+  <tr><th>Situation</th><th>What happens</th></tr>
+  <tr><td>ModA scripts a squad</td><td>AP sees <code>scripted_target</code>, skips at PROTECTION gate</td></tr>
+  <tr><td>AP scripts a squad</td><td>ModA sees <code>scripted_target</code>, skips</td></tr>
+  <tr><td>ModA marks squad as owned (no scripted_target yet)</td><td>AP sees ownership filter, skips at PROTECTION gate</td></tr>
+  <tr><td>Neither owns the squad</td><td>Both can compete; first to set <code>scripted_target</code> wins</td></tr>
+</table>
+
+<p>No shared state. No direct imports. Just <code>scripted_target</code> + ownership filters.</p>
+
+<h3>Listen: Subscribe to Events</h3>
+<p>Subscribe to cause events via xbus. No AP dependency - xlibs only.</p>
+<pre><code>function on_game_start()
+    xbus.subscribe("cause:massacre", function(e)
+        printf("massacre at %s: %d dead", e.level_id, e.total_deaths)
+    end, "my_mod_listener")
+end</code></pre>
+
+<p>Available events: <code>cause:massacre</code>, <code>cause:squadkill</code>, <code>cause:basekill</code>, <code>cause:elite</code>, <code>cause:elitekill</code>, <code>cause:wounded</code>, <code>cause:harvest</code>, <code>cause:stash</code>, <code>cause:area</code>, <code>cause:needs</code>.</p>
+
+<h3>Coordinate: Deep Integration</h3>
+<p>Direct access to AP domain systems. APIs may change between versions.</p>
+
+<table>
+  <tr><th>Module</th><th>Function</th><th>Returns</th></tr>
+  <tr><td>Tracker</td><td><code>get_elite(entity_id)</code></td><td>elite data table (level, kills, name) or nil</td></tr>
+  <tr><td>Tracker</td><td><code>get_elite_level(entity_id)</code></td><td>integer level or 0</td></tr>
+  <tr><td>Tracker</td><td><code>is_elite(entity_id)</code></td><td>boolean</td></tr>
+  <tr><td>Tracker</td><td><code>get_stalker_needs(squad_id)</code></td><td>needs DTO timestamps</td></tr>
+  <tr><td>Smart Mutator</td><td><code>conquer_smart(smart_id, faction)</code></td><td>set faction ownership with FIFO eviction</td></tr>
+  <tr><td>Squad</td><td><code>script_squad(squad, smart, opts)</code></td><td>script with lifecycle</td></tr>
+  <tr><td>Squad</td><td><code>is_protected(squad)</code></td><td>check all guards</td></tr>
+  <tr><td>Squad</td><td><code>register_owner(name, filter_fn)</code></td><td>register ownership filter</td></tr>
+  <tr><td>Squad</td><td><code>get_owner(squad)</code></td><td>ownership query</td></tr>
+  <tr><td>Squad</td><td><code>get_scripted_ids()</code></td><td>read-only scripted squads table</td></tr>
+</table>
+
+<p><strong>Important:</strong> <code>script_squad</code> has no inline protection check. Caller must verify with <code>is_protected</code>.</p>
+<h3>Checklist: Adding a New Cause + Consequence</h3>
+<ol>
+  <li>Add <code>CAUSE.X</code> to ap_core_const CAUSE table</li>
+  <li>Add <code>CONSEQUENCE.X_VERB</code> to ap_core_const CONSEQUENCE table</li>
+  <li>Add MCM defaults to ap_core_mcm.defaults</li>
+  <li>Create <code>ap_ext_cause_x.script</code> with predicate, register in on_game_start</li>
+  <li>Create <code>ap_ext_consequence_x_verb.script</code> with handler, register in on_game_start</li>
+  <li>Add PDA messages to ap_ext_messages if needed</li>
+  <li>Add MCM UI entries to ap_core_mcm menu builder</li>
+  <li>Run validator: <code>stalker-manager.sh validate</code></li>
+</ol>
+
+<p>Full documentation: <a href="https://github.com/damiansirbu-stalker/AlifePlus/blob/main/doc/integration-guide.md">integration-guide.md</a> and <a href="https://github.com/damiansirbu-stalker/AlifePlus/blob/main/doc/architecture.md">architecture.md</a>.</p>
 </section>
 
 <!-- VISION -->
@@ -304,48 +443,52 @@ end</code></pre>
 <h2>Architecture</h2>
 
 <h3>Problem</h3>
-<p>Most alife mods for Anomaly hook engine callbacks independently, iterate over squads on a timer, implement their own throttling, check squad validity in their own way, and set engine fields directly. Each mod operates as a silo with no awareness of other mods controlling the same squads.</p>
+<p>Most alife mods for Anomaly hook engine callbacks independently, iterate over squads on a timer, implement their own rate limiting, check squad validity in their own way, and set engine fields directly. Each mod operates as a silo with no awareness of other mods controlling the same squads.</p>
 
 <h3>Design</h3>
-<p>xlibs and AlifePlus are designed as a shared alife layer that mods register to rather than build around.</p>
+<p>xlibs and AlifePlus are designed as a shared alife layer that mods register to rather than build around. The codebase is split into <strong>core</strong> (ap_core_*) and <strong>ext</strong> (ap_ext_*). Core never imports ext. All domain logic reaches the framework through registered function references.</p>
 
 <ul>
-  <li><strong>xlibs provides invariants:</strong> event bus (publish/subscribe), squad safety (protection checks, scripting, release), smart terrain queries, entity resolution, and a squad ownership protocol (claim/release with TTL, one owner at a time, framework-enforced lifecycle)</li>
-  <li><strong>AlifePlus provides the pipeline:</strong> a radiant callback dispatcher with rate limiting, a unified protection stack, cause/consequence routing via the event bus, and lifecycle management (scripting, arrival, cooldown, cleanup)</li>
-  <li><strong>Mods register domain logic:</strong> a predicate and a handler. The framework handles the rest.</li>
+  <li><strong>xlibs provides invariants:</strong> event bus (publish/subscribe), squad safety (protection checks via is_protected composite guard, scripting, release), smart terrain queries, entity resolution, and shared utilities (logging, profiling, time, math)</li>
+  <li><strong>AlifePlus core provides the pipeline:</strong> a 5-gate radiant dispatcher and 3-gate reactive dispatcher, cause/consequence routing via xbus, an ownership registry (register_owner/get_owner -- mods declare which squads they control), squad lifecycle management (scripting with TTL, arrival detection, post-arrival wait, automatic unscript), and multi-layer rate limiting (pacer, Bresenham ratio, per-cause/consequence budgets, global consequence counter)</li>
+  <li><strong>Mods register domain logic:</strong> a cause predicate and a consequence handler. The framework handles gates, protection, rate limiting, tracing, arrival, and cleanup.</li>
 </ul>
 
 <h3>What the framework provides</h3>
 <p>Mods that register with the pipeline get these facilities without implementing them:</p>
 <table>
   <tr><th>Facility</th><th>What it does</th></tr>
-  <tr><td>Bresenham rate limiter</td><td>Integer-only ratio gate based on the Bresenham line algorithm. Distributes callback budget fairly across causes with zero floating-point arithmetic and no timer dependencies.</td></tr>
-  <tr><td>TTL bucket collections</td><td>Time-bounded data structures with automatic expiry. Used for cooldowns, claim lifetimes, and deferred cleanup.</td></tr>
-  <tr><td>Deferred queues</td><td>Expensive or unsafe operations are batched and flushed outside the callback, keeping the tick lightweight.</td></tr>
-  <tr><td>Protection stack</td><td>Unified squad safety checks applied everywhere: the pipeline, squad search functions, and scripting calls all use the same protection layer.</td></tr>
-  <tr><td>Ownership protocol</td><td>Claim/release with TTL. One owner at a time. Framework auto-releases expired claims.</td></tr>
-  <tr><td>Tracing</td><td>Hierarchical trace context flows through the entire pipeline. Every gate decision, squad action, and result is recorded.</td></tr>
-  <tr><td>Logging</td><td>Structured file logging with buffered writes. Per-module log files, configurable verbosity.</td></tr>
-  <tr><td>Performance monitoring</td><td>Wall-clock and game-time profiling per cause, per consequence, per gate. Identifies bottlenecks without external tools.</td></tr>
+  <tr><td>5-stage gate chain</td><td>Radiant: PACER -> SCRIPTED -> RATIO -> PROTECTION -> EVAL. Reactive: PACER -> RATIO -> EVAL. Each gate either passes or rejects. No mod code needed.</td></tr>
+  <tr><td>Bresenham ratio gate</td><td>Integer-only on-map vs off-map admission. Distributes callback budget fairly with zero floating-point arithmetic.</td></tr>
+  <tr><td>Rate limiting</td><td>Per-cause sliding window, per-consequence token bucket, global consequence counter. All configurable via MCM.</td></tr>
+  <tr><td>Protection stack</td><td>Four guard types (permanent, active role, task target, scripted) + ownership registry. Applied at producer, cause, consequence, and squad search layers.</td></tr>
+  <tr><td>Ownership registry</td><td>register_owner(name, filter_fn). Squads matching any filter excluded from AP. Warfare and BAO registered by default.</td></tr>
+  <tr><td>Squad lifecycle</td><td>script_squad with TTL, arrival detection (10s scan), post-arrival wait, automatic unscript. Persists across save/load.</td></tr>
+  <tr><td>Tracing</td><td>Hierarchical trace context (tid + path) flows through the entire pipeline. Zero cost below DEBUG.</td></tr>
+  <tr><td>Logging + profiling</td><td>Structured file logging, microsecond timing via engine timer. Per-module log files, configurable verbosity.</td></tr>
 </table>
 
-<h3>Pipeline</h3>
-<p>Every squad event passes through the same sequence of gates. Each gate either passes the event forward or rejects it.</p>
+<h3>Pipeline (radiant)</h3>
+<p>Radiant causes fire on <code>squad_on_update</code> (sole radiant source). Five gates, each either passes or rejects. Reactive uses gates 1, 3, 5 only (no SCRIPTED or PROTECTION -- those are handled downstream in consequences).</p>
 
 <div class="pipeline">
-  <div class="pipe-node pipe-entry"><strong>Registered callback</strong><small>any engine callback registered with the dispatcher</small></div>
+  <div class="pipe-node pipe-entry"><strong>squad_on_update</strong><small>engine callback, fires every tick per squad</small></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node pipe-gate"><strong>Rate limiter</strong><small>per-cause budget, Bresenham ratio gate</small><span class="pipe-reject">budget exceeded: skip</span></div>
+  <div class="pipe-node pipe-gate"><strong>1. PACER</strong><small>os.clock timestamp, default 5s interval</small><span class="pipe-reject">rejects ~99% of calls</span></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node pipe-gate"><strong>Protection stack</strong><small>permanent squad? active role? task target? owned by another mod?</small><span class="pipe-reject">protected: skip</span></div>
+  <div class="pipe-node pipe-gate"><strong>2. SCRIPTED</strong><small>hash lookup: squad already under AP control?</small><span class="pipe-reject">already scripted: skip</span></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node pipe-gate"><strong>Cause predicate</strong><small>mod-registered condition (is this event interesting?)</small><span class="pipe-reject">condition not met: skip</span></div>
+  <div class="pipe-node pipe-gate"><strong>3. RATIO</strong><small>Bresenham integer admission, on-map vs off-map</small><span class="pipe-reject">ratio exceeded: skip</span></div>
+  <div class="pipe-arrow"></div>
+  <div class="pipe-node pipe-gate"><strong>4. PROTECTION</strong><small>permanent? active role? task target? owned? scripted?</small><span class="pipe-reject">protected: retry 0.5s</span></div>
+  <div class="pipe-arrow"></div>
+  <div class="pipe-node pipe-gate"><strong>5. EVAL</strong><small>per-cause rate limit, predicate evaluation</small><span class="pipe-reject">nil or rate limited: skip</span></div>
   <div class="pipe-arrow"></div>
   <div class="pipe-node pipe-action"><strong>xbus publish</strong><small>cause event dispatched to all subscribers</small></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node pipe-gate"><strong>Consequence gates</strong><small>enabled? chance roll? data valid?</small><span class="pipe-reject">gate failed: next handler</span></div>
+  <div class="pipe-node pipe-gate"><strong>Consumer gates</strong><small>global rate limit, per-type rate limit, condition, enabled, chance</small><span class="pipe-reject">gate failed: next handler</span></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node pipe-action"><strong>Handler</strong><small>find squads, claim ownership, script to target, send PDA</small></div>
+  <div class="pipe-node pipe-action"><strong>Handler</strong><small>find squads, script to target, arrival handler, PDA</small></div>
 </div>
 
 <h3>Integration examples</h3>
@@ -364,8 +507,9 @@ end</code></pre>
 <ul>
   <li><strong>Cause/consequence templates:</strong> reusable patterns (respond, chase, flee, patrol, guard) that mods instantiate with their own parameters instead of reimplementing squad scripting.</li>
   <li><strong>xbus expansion:</strong> typed events with schemas, priority subscribers, event namespaces.</li>
-  <li><strong>Plugin SDK:</strong> documentation and a minimal example mod (~50 lines) showing how to register one cause and one consequence.</li>
 </ul>
+
+<p><strong>Done:</strong> Integration guide with full examples for all three levels -- see <a href="https://github.com/damiansirbu-stalker/AlifePlus/blob/main/doc/integration-guide.md">integration-guide.md</a>. Architecture reference rewritten for core/ext framework -- see <a href="https://github.com/damiansirbu-stalker/AlifePlus/blob/main/doc/architecture.md">architecture.md</a>.</p>
 
 <div class="callout key">
 <strong>Open invitation.</strong> If you maintain an alife mod and want to integrate, reach out. The goal is to establish proper APIs based on what mod authors actually need.<br>
