@@ -306,9 +306,6 @@ local function _handler(event_data)
     if not cfg.consequence_ambush_setup_enabled then
         return { code = RESULT.DISABLED_NEXT }
     end
-    if not xmath.chance(cfg.consequence_ambush_setup_chance) then
-        return { code = RESULT.CHANCE_NEXT }
-    end
     local smart = xobject.se(event_data.smart_id)
     if not smart then
         return { code = RESULT.RULES_NEXT, reason = REASON.NO_SMART }
@@ -332,7 +329,7 @@ end
 function on_game_start()
     ap_core_consumer.register(CONSEQUENCE.AMBUSH_SETUP, {
         event = CAUSE.AMBUSH,
-        priority = 20,
+        personality = { PERSONALITY.AGGRESSION, PERSONALITY.GREED },
     }, _handler)
 end</code></pre>
 
@@ -345,7 +342,7 @@ end
 function on_game_start()
     ap_core_consumer.register(CONSEQUENCE.AMBUSH_SETUP, {
         event = CAUSE.AMBUSH,
-        priority = 20,
+        personality = { PERSONALITY.AGGRESSION, PERSONALITY.GREED },
         on_arrive = _on_arrive,
     }, _handler)
 end</code></pre>
@@ -450,7 +447,7 @@ end</code></pre>
 
 <ul>
   <li><strong>xlibs provides invariants:</strong> event bus (publish/subscribe), squad safety (protection checks via is_protected composite guard, scripting, release), smart terrain queries, entity resolution, and shared utilities (logging, profiling, time, math)</li>
-  <li><strong>AlifePlus core provides the pipeline:</strong> a 5-gate radiant dispatcher and 3-gate reactive dispatcher, cause/consequence routing via xbus, an ownership registry (register_owner/get_owner -- mods declare which squads they control), squad lifecycle management (scripting with TTL, arrival detection, post-arrival wait, automatic unscript), and multi-layer rate limiting (pacer, Bresenham ratio, per-cause/consequence budgets, global consequence counter)</li>
+  <li><strong>AlifePlus core provides the pipeline:</strong> a 5-gate radiant dispatcher and 3-gate reactive dispatcher, cause/consequence routing via xbus, a personality gate (per-faction trait-based behavioral filtering), an ownership registry (register_owner/get_owner -- mods declare which squads they control), squad lifecycle management (scripting with TTL, arrival detection, post-arrival wait, automatic unscript), and multi-layer rate limiting (pacer, Bresenham ratio, per-cause/consequence budgets, global radiant consequence counter)</li>
   <li><strong>Mods register domain logic:</strong> a cause predicate and a consequence handler. The framework handles gates, protection, rate limiting, tracing, arrival, and cleanup.</li>
 </ul>
 
@@ -460,10 +457,11 @@ end</code></pre>
   <tr><th>Facility</th><th>What it does</th></tr>
   <tr><td>5-stage gate chain</td><td>Radiant: PACER -> SCRIPTED -> RATIO -> PROTECTION -> EVAL. Reactive: PACER -> RATIO -> EVAL. Each gate either passes or rejects. No mod code needed.</td></tr>
   <tr><td>Bresenham ratio gate</td><td>Integer-only on-map vs off-map admission. Distributes callback budget fairly with zero floating-point arithmetic.</td></tr>
-  <tr><td>Rate limiting</td><td>Per-cause sliding window, per-consequence token bucket, global consequence counter. All configurable via MCM.</td></tr>
+  <tr><td>Personality gate</td><td>Per-faction 7-trait behavioral profile (aggression, greed, survival, perception, territory, relation, discipline). Consequences declare which traits gate them. Average of declared traits rolled against per evaluation.</td></tr>
+  <tr><td>Rate limiting</td><td>Per-cause sliding window, per-consequence token bucket, global radiant consequence counter. All configurable via MCM.</td></tr>
   <tr><td>Protection stack</td><td>Four guard types (permanent, active role, task target, scripted) + ownership registry. Applied at producer, cause, consequence, and squad search layers.</td></tr>
   <tr><td>Ownership registry</td><td>register_owner(name, filter_fn). Squads matching any filter excluded from AP. Warfare and BAO registered by default.</td></tr>
-  <tr><td>Squad lifecycle</td><td>script_squad with TTL, arrival detection (10s scan), post-arrival wait, automatic unscript. Persists across save/load.</td></tr>
+  <tr><td>Squad lifecycle</td><td>script_squad with TTL, periodic arrival detection, post-arrival wait, automatic unscript. Persists across save/load.</td></tr>
   <tr><td>Tracing</td><td>Hierarchical trace context (tid + path) flows through the entire pipeline. Zero cost below DEBUG.</td></tr>
   <tr><td>Logging + profiling</td><td>Structured file logging, microsecond timing via engine timer. Per-module log files, configurable verbosity.</td></tr>
 </table>
@@ -474,7 +472,7 @@ end</code></pre>
 <div class="pipeline">
   <div class="pipe-node pipe-entry"><strong>squad_on_update</strong><small>engine callback, fires every tick per squad</small></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node pipe-gate"><strong>1. PACER</strong><small>os.clock timestamp, default 5s interval</small><span class="pipe-reject">rejects ~99% of calls</span></div>
+  <div class="pipe-node pipe-gate"><strong>1. PACER</strong><small>os.clock timestamp, MCM-configurable interval</small><span class="pipe-reject">rejects ~99% of calls</span></div>
   <div class="pipe-arrow"></div>
   <div class="pipe-node pipe-gate"><strong>2. SCRIPTED</strong><small>hash lookup: squad already under AP control?</small><span class="pipe-reject">already scripted: skip</span></div>
   <div class="pipe-arrow"></div>
@@ -486,30 +484,23 @@ end</code></pre>
   <div class="pipe-arrow"></div>
   <div class="pipe-node pipe-action"><strong>xbus publish</strong><small>cause event dispatched to all subscribers</small></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node pipe-gate"><strong>Consumer gates</strong><small>global rate limit, per-type rate limit, condition, enabled, chance</small><span class="pipe-reject">gate failed: next handler</span></div>
+  <div class="pipe-node pipe-gate"><strong>Consumer gates</strong><small>global rate limit (radiant only), per-type rate limit, personality, enabled</small><span class="pipe-reject">gate failed: next handler</span></div>
   <div class="pipe-arrow"></div>
   <div class="pipe-node pipe-action"><strong>Handler</strong><small>find squads, script to target, arrival handler, PDA</small></div>
 </div>
 
-<h3>Integration examples</h3>
+<h3>Potential integrations</h3>
+<p>Examples of how existing alife mods could use the framework instead of reimplementing squad control:</p>
 <table>
-  <tr><th>Mod</th><th>As AP plugin</th></tr>
-  <tr><td>Warfare</td><td>Base-capture and patrol as AP causes/consequences. Squad ownership via framework claim/release.</td></tr>
-  <tr><td>Semi Radiant AI</td><td>Patrols as radiant causes with arrival-based release.</td></tr>
-  <tr><td>Guards Spawner</td><td>Guard-return as cause. Long-TTL ownership claim with auto-renew.</td></tr>
-  <tr><td>Night Mutants</td><td>Spawn/despawn as causes with time-of-day conditions.</td></tr>
-  <tr><td>Bounty Squads Extended</td><td>Bounty as consequence using the chase template.</td></tr>
-  <tr><td>Faction Relations</td><td>Pure xbus subscriber. Listens to cause events, adjusts faction goodwill.</td></tr>
-  <tr><td>Mugging Squads</td><td>Loot detection as reactive cause, hostile response as consequence.</td></tr>
+  <tr><th>Mod type</th><th>As AP plugin</th></tr>
+  <tr><td>Territory warfare</td><td>Base-capture and patrol as AP causes/consequences. Squad ownership via framework claim/release.</td></tr>
+  <tr><td>Patrol systems</td><td>Patrols as radiant causes with arrival-based release.</td></tr>
+  <tr><td>Guard spawners</td><td>Guard-return as cause. Long-TTL ownership claim with auto-renew.</td></tr>
+  <tr><td>Bounty systems</td><td>Bounty as consequence using the chase pattern.</td></tr>
+  <tr><td>Faction relations</td><td>Pure xbus subscriber. Listens to cause events, adjusts faction goodwill.</td></tr>
 </table>
 
-<h3>Planned</h3>
-<ul>
-  <li><strong>Cause/consequence templates:</strong> reusable patterns (respond, chase, flee, patrol, guard) that mods instantiate with their own parameters instead of reimplementing squad scripting.</li>
-  <li><strong>xbus expansion:</strong> typed events with schemas, priority subscribers, event namespaces.</li>
-</ul>
-
-<p><strong>Done:</strong> Integration guide with full examples for all three levels -- see <a href="https://github.com/damiansirbu-stalker/AlifePlus/blob/main/doc/integration-guide.md">integration-guide.md</a>. Architecture reference rewritten for core/ext framework -- see <a href="https://github.com/damiansirbu-stalker/AlifePlus/blob/main/doc/architecture.md">architecture.md</a>.</p>
+<p>Full documentation: <a href="https://github.com/damiansirbu-stalker/AlifePlus/blob/main/doc/integration-guide.md">integration-guide.md</a> and <a href="https://github.com/damiansirbu-stalker/AlifePlus/blob/main/doc/architecture.md">architecture.md</a>.</p>
 
 <div class="callout key">
 <strong>Open invitation.</strong> If you maintain an alife mod and want to integrate, reach out. The goal is to establish proper APIs based on what mod authors actually need.<br>
