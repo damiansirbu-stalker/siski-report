@@ -300,7 +300,7 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
 
 <header>
   <h1>SISKI ALIFE: Code Copying and License Violation Report</h1>
-  <p>Damian Sirbu, xlibs and AlifePlus developer &middot; Last updated: 2026-04-05 &middot; Subject: SISKI ALIFE mod by qkff99</p>
+  <p>Damian Sirbu, xlibs and AlifePlus developer &middot; Last updated: 2026-04-12 &middot; Subject: SISKI ALIFE mod by qkff99</p>
   <p style="font-size:12px;color:var(--fg-dim)">ModDB: <a href="https://www.moddb.com/mods/stalker-anomaly/addons/reznya">SISKI ALIFE (Reznya)</a> &middot; <a href="https://www.moddb.com/mods/stalker-anomaly/addons/siski-nano-size-alife-anomaly-153">SISKI Nano</a> &middot; GitHub: <a href="https://github.com/qkff99/siski">qkff99/siski</a></p>
 </header>
 
@@ -340,6 +340,7 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
   <tr><td>Event bus clone (5/5 API functions)</td><td><code>siski_bus.script</code> matches all functions, data structure, algorithm. Zero prior history.</td><td><a href="#e-bus">&darr;</a></td></tr>
   <tr><td>7 architectural patterns copied</td><td>Bus, callbacks, producer/consumer, throttle, init, bridge, factory. None in SISKI 0.9.4.1.</td><td><a href="#evidence">&darr;</a></td></tr>
   <tr><td>All patterns appeared in 5&ndash;7 days</td><td>AlifePlus source published Mar 18. SISKI refactor Mar 23&ndash;28.</td><td><a href="#timeline">&darr;</a></td></tr>
+  <tr><td>v1.0 deepens the same patterns</td><td>3 new modules (Apr 10&ndash;11), +6,670 lines. <code>ap_owned_squad</code> now in 7 files. No code removed, no attribution added.</td><td><a href="#evidence">&darr;</a></td></tr>
   <tr><td>Code from other authors unattributed</td><td>Demonized: preserved <code>analse_mode</code> typo. xcvb: verbatim guard data.</td><td><a href="#prior">&darr;</a></td></tr>
   <tr><td>Coordinated retaliation</td><td>Discord call to "strike, shame, ban, ruin". ModDB warnings issued to qkff99.</td><td><a href="#harassment">&darr;</a></td></tr>
 </table>
@@ -377,7 +378,7 @@ git show 6e0fb89:gamedata/scripts/siski_core.script | grep RegisterScriptCallbac
 
 <!-- EVIDENCE PRESERVATION -->
 <div class="callout key">
-  <strong>Evidence preservation.</strong> The complete SISKI repository (all branches, all commits) was cloned via <code>git clone --mirror</code> and archived as a git bundle on 2026-03-29 and 2026-03-30. This includes the deleted AI plans, every commit referenced in this report, and the full history of all three branches (main, new_lite_siski, dev_stuff). All commit hashes, timestamps, and file contents cited below are verifiable from the archived copy.
+  <strong>Evidence preservation.</strong> The complete SISKI repository (all branches, all commits) was cloned via <code>git clone --mirror</code> and archived as a git bundle on 2026-03-29, 2026-03-30, and 2026-04-12 (to capture v1.0). This includes the deleted AI plans, every commit referenced in this report, and the full history of all branches. All commit hashes, timestamps, and file contents cited below are verifiable from the archived copies.
 </div>
 
 <!-- nav moved to sidebar -->
@@ -467,10 +468,10 @@ git show 6e0fb89:gamedata/scripts/siski_core.script | grep RegisterScriptCallbac
   <tr><td>Proprietary s4(a)</td><td>Mar 18&ndash;29</td><td>No derivative works &mdash; bus + architecture is derivative</td></tr>
   <tr><td>Proprietary s4(c)</td><td>Mar 18&ndash;29</td><td>No reverse engineering &mdash; AI decomposition of source</td></tr>
   <tr><td>Proprietary s5</td><td>Mar 18&ndash;29</td><td>No reproducing design &mdash; reactive pipeline replicated</td></tr>
-  <tr><td>PolyForm Perimeter</td><td>Mar 29&ndash;present</td><td>No competing use, no replication without credit, visible attribution required &mdash; all three broken. Zero attribution across 58 files</td></tr>
+  <tr><td>PolyForm Perimeter</td><td>Mar 29&ndash;present</td><td>No competing use, no replication without credit, visible attribution required &mdash; all three broken. Zero attribution across all files</td></tr>
 </table>
 
-<p>Grep across all 58 SISKI <code>.script</code> files, config files, README, changelog, and LICENSE for: <code>Damian</code>, <code>Sirbu</code>, <code>AlifePlus</code>, <code>xlibs</code>, <code>xbus</code>, <code>xsmart</code>. Result: <strong>zero matches</strong>. SISKI's own GPL-3.0 LICENSE (commit <code>b83ddd0</code>) has the copyright holder placeholder still unfilled: <code>&lt;name of author&gt;</code>.</p>
+<p>Grep across all SISKI <code>.script</code> files (32 at 0.9.5, 33 at 1.0), config files, README, changelog, and LICENSE for: <code>Damian</code>, <code>Sirbu</code>, <code>AlifePlus</code>, <code>xlibs</code>, <code>xbus</code>, <code>xsmart</code>. Result: <strong>zero matches</strong>. SISKI's own GPL-3.0 LICENSE (commit <code>b83ddd0</code>) has the copyright holder placeholder still unfilled: <code>&lt;name of author&gt;</code>.</p>
 
 <p><strong>Note on GPL-3.0:</strong> qkff99 released SISKI under GPL-3.0, but you cannot GPL code you do not own the copyright to. Derivative works of proprietary/PolyForm-licensed code cannot be relicensed under GPL without the original author's permission. The GPL license on SISKI is invalid for all code derived from xlibs and AlifePlus.</p>
 </section>
@@ -608,14 +609,14 @@ return true                       -- ^ same return</code></pre>
 
 <p><strong>Zero development history.</strong> <code>git log --all --follow -- gamedata/scripts/siski_bus.script</code> shows exactly one commit: <code>b026c90</code>. No prior bus, pub/sub, or event system code existed in any SISKI file before this commit. The file appeared fully formed at 159 lines alongside AI plans that describe its API.</p>
 
-<p><strong>93 references across 15 files.</strong> 83 subscribe calls, 10 publish calls. The bus is the communication layer for the entire mod: <code>siski_core</code> publishes to it, <code>siski_memory</code>, <code>siski_operator</code>, <code>siski_mutants</code>, <code>siski_base_filler</code>, <code>siski_trade</code>, and every other module subscribes to it. Removing <code>siski_bus.script</code> would break SISKI.</p>
+<p><strong>100 references across 16 files</strong> (as of v1.0; 93 across 15 at 0.9.5). The bus is the communication layer for the entire mod: <code>siski_core</code> publishes to it, <code>siski_memory</code>, <code>siski_mutants</code>, <code>siski_base_filler</code>, <code>siski_trade</code>, and every other module subscribes to it. Removing <code>siski_bus.script</code> would break SISKI.</p>
 
 <!-- 3b. CALLBACK ARCHITECTURE -->
 <h3 id="e-callbacks">3b. Callback Architecture: squad_on_update, enter/leave_smart, forwarder factory</h3>
 
 <p><strong>In plain English:</strong> A callback is a function the game engine calls when something happens (a squad moves, enters a location, etc.). Old SISKI listened for 5 events, mainly "the player's screen updated" &mdash; a brute-force approach. AlifePlus listens for squad-specific events across the entire game world. After the AlifePlus source was published, SISKI switched to the same approach: same events, same roles, same factory pattern to wire them up.</p>
 
-<p>SISKI 0.9.4.1 used 5 callbacks with client-side <code>actor_on_update</code> as its main loop. SISKI 0.9.5 uses 24 callbacks with server-side <code>squad_on_update</code> as the FSM tick and <code>enter/leave_smart</code> as semantic events &mdash; the same architecture AlifePlus uses.</p>
+<p>SISKI 0.9.4.1 used 5 callbacks with client-side <code>actor_on_update</code> as its main loop. SISKI 0.9.5 uses 22 callbacks with server-side <code>squad_on_update</code> as the FSM tick and <code>enter/leave_smart</code> as semantic events &mdash; the same architecture AlifePlus uses.</p>
 
 <div class="mirror">
 <div class="compare-panel">
@@ -657,7 +658,7 @@ RegisterScriptCallback(
   "squad_on_leave_smart",    -- NEW
   siski.core.on_squad_leave_smart)
 -- actor_on_update REMOVED
--- 24 total callbacks (was 5)</code></pre>
+-- 22 total callbacks (was 5)</code></pre>
 </div>
 </div>
 
@@ -678,25 +679,25 @@ RegisterScriptCallback("squad_on_enter_smart", ...)     -- NEW
 RegisterScriptCallback("squad_on_leave_smart", ...)     -- NEW
 RegisterScriptCallback("squad_on_first_update", ...)
 RegisterScriptCallback("squad_on_npc_creation", ...)
--- actor_on_update REMOVED, 24 total (was 5)</code></pre>
+-- actor_on_update REMOVED, 22 total (was 5)</code></pre>
 </div>
 </div>
 
 <p><strong>Callback forwarder factory</strong> &mdash; both use a factory function that takes a callback name and returns a closure that forwards engine events to the internal bus. This pattern (factory -> closure -> bus publish) does not exist in any other STALKER Anomaly mod:</p>
 <div class="compare">
   <div class="compare-panel">
-    <div class="compare-label src">ap_producer_reactive.script :221-223</div>
+    <div class="compare-label src">ap_core_producer.script :299-301</div>
     <pre><code>-- Factory: takes callback name
-local function _create_dispatcher(callback)
+local function _create_reactive_dispatcher(callback)
     -- Returns closure that forwards to bus
     return function(...)
-        dispatch(callback, ...)
+        _dispatch_reactive(callback, ...)
     end
 end
 
 -- Usage: one closure per callback type
--- RegisterScriptCallback("squad_on_update",
---     _create_dispatcher("squad_on_update"))</code></pre>
+-- RegisterScriptCallback(callback, dispatcher)
+-- _dispatchers[callback] = dispatcher</code></pre>
   </div>
   <div class="compare-panel">
     <div class="compare-label cpy">siski_core.script :191-198</div>
@@ -728,7 +729,7 @@ end
 <div class="compare-panel">
 <div class="compare-label src">AlifePlus (Mar 18)</div>
 <pre><code>1. Producer
-   (ap_producer_reactive)
+   (ap_core_producer)
    registers callbacks,
    evaluates conditions,
    rate-limits, publishes
@@ -770,7 +771,7 @@ manage tasks directly.</code></pre>
 
 <table>
   <tr><th>Tier</th><th>AlifePlus</th><th>SISKI 0.9.5</th></tr>
-  <tr><td>Producer</td><td><code>ap_producer_reactive.script</code> &mdash; registers callbacks, forwards via <code>_create_dispatcher</code></td><td><code>siski_core.script</code> &mdash; registers callbacks, forwards via <code>make_callback_forwarder</code></td></tr>
+  <tr><td>Producer</td><td><code>ap_core_producer.script</code> &mdash; registers callbacks, forwards via <code>_create_reactive_dispatcher</code></td><td><code>siski_core.script</code> &mdash; registers callbacks, forwards via <code>make_callback_forwarder</code></td></tr>
   <tr><td>Bus</td><td><code>xbus.script</code> &mdash; <code>publish</code>/<code>subscribe</code> with named dedup</td><td><code>siski_bus.script</code> &mdash; identical API, identical data structure</td></tr>
   <tr><td>Consumers</td><td><code>ap_consumer.script</code> &mdash; centralized, subscribes to bus</td><td>12+ modules each call <code>siski.bus.subscribe()</code></td></tr>
 </table>
@@ -785,16 +786,15 @@ manage tasks directly.</code></pre>
 <div class="mirror">
 <div class="compare-panel">
 <div class="compare-label src">AlifePlus (Mar 18)</div>
-<pre><code>-- ap_producer_reactive :30-37
-local event_level =
-  xlevel.get_level_id(first_arg)
-local actor_level =
-  xlevel.get_actor_level_id()
-local on_map =
-  (event_level == actor_level)
+<pre><code>-- ap_core_producer :241-248
+local on_map = squad.online
+if not _alife_ratio_gate(
+    on_map, _radiant_ct) then
+  return  -- off-map throttled
+end
 
--- Bresenham gate :39-74
--- on-map: favored (admitted)
+-- Bresenham integer ratio :56-86
+-- on-map: always admitted
 -- off-map: throttled by ratio
 -- MCM configurable</code></pre>
 </div>
@@ -821,12 +821,12 @@ local squad_level =
 </div>
 </div>
 
-<p>The mechanism differs (Bresenham ratio vs skip counter), but the design is identical: compare squad level to actor level, always process on-map, throttle off-map. This pattern appeared 7 days after AlifePlus published it.</p>
+<p>The mechanism differs (Bresenham ratio gate vs integer skip counter) and off-level throttling is a generic optimization idea. What makes this notable is timing and context: SISKI 0.9.4.1 had no concept of on-map vs off-map processing. The feature appeared 7 days after AlifePlus published the same concept, in the same refactor that copied the bus and callback architecture. In isolation this would not be evidence; combined with the other patterns it fits the same source.</p>
 
 <!-- 3e. TWO-PHASE INIT -->
 <h3 id="e-init">3e. Two-Phase Initialization</h3>
 
-<p><strong>In plain English:</strong> STALKER mods need to start up in a specific order &mdash; some things can only happen after the game world fully loads. AlifePlus splits startup into two phases: register first, then activate once the world exists. SISKI 0.9.4.1 had no such split. After the AlifePlus source was published, SISKI adopted the same two-phase pattern.</p>
+<p><strong>In plain English:</strong> STALKER mods need to start up in a specific order &mdash; some things can only happen after the game world fully loads. AlifePlus splits startup into two phases: register first, then activate once the world exists. SISKI 0.9.4.1 had no such split. After the AlifePlus source was published, SISKI adopted the same two-phase pattern. Note: using <code>actor_on_first_update</code> as a deferred init point is a known Anomaly pattern &mdash; several mods do it. What is notable here is that SISKI added it in the same commit that copied the bus and callback architecture, and the deleted AI plan explicitly describes the two-phase bootstrap.</p>
 
 <div class="mirror">
 <div class="compare-panel">
@@ -874,8 +874,8 @@ _bootstrap_enabled_runtime()
 <p><strong>Reads private tracker fields:</strong></p>
 <div class="compare">
   <div class="compare-panel">
-    <div class="compare-label src">ap_alife_tracker.script :359-364 (internal data)</div>
-    <pre><code>scripted_squads[squad.id] = {
+    <div class="compare-label src">ap_core_squad.script :118-122 (private <code>_ap_scripted_squads</code> table)</div>
+    <pre><code>_ap_scripted_squads[squad.id] = {
     scripted_target = name,
     target_smart_id = smart.id,
     tracked_at = xtime.game_sec(),
@@ -899,7 +899,7 @@ _bootstrap_enabled_runtime()
 <p><strong>Verbatim faction string copied from xsmart:</strong></p>
 <div class="compare">
   <div class="compare-panel">
-    <div class="compare-label src">xsmart.script :418 (xlibs)</div>
+    <div class="compare-label src">xsmart.script :419 (xlibs)</div>
     <pre><code>local ALL_FACTIONS_FC = "army, bandit, csky, dolg, ecolog, freedom, killer, monolith, stalker, renegade, greh, isg"</code></pre>
   </div>
   <div class="compare-panel">
@@ -945,7 +945,7 @@ squad.current_action     = 0              -- 4</code></pre>
 <p><strong><code>ap_owned_squad</code> &mdash; reverse-engineering AlifePlus's internal ownership state:</strong></p>
 <p><strong>In plain English:</strong> This function probes AlifePlus's internal bridge module to check if AP currently controls a squad. It reads AP's private function names (<code>should_yield_squad</code>, <code>is_ap_owned_squad</code>) by name.</p>
 
-<p>These function names are not documented anywhere &mdash; discovering them requires reading AlifePlus source code. The function is copy-pasted identically across 4 separate SISKI files:</p>
+<p>These function names are not documented anywhere &mdash; discovering them requires reading AlifePlus source code. The function is copy-pasted identically across 7 separate SISKI files (4 in 0.9.5, 3 more added in 1.0):</p>
 <div class="compare">
   <div class="compare-panel">
     <div class="compare-label cpy">siski_base_filler.script :109-118</div>
@@ -978,26 +978,28 @@ end</code></pre>
 end</code></pre>
   </div>
 </div>
-<p>Also identical in <code>siski_service_filler.script</code> and <code>siski_tasks_registry.script</code>. Four copies of the same function that reads AlifePlus's private internal state. The function names <code>should_yield_squad</code> and <code>is_ap_owned_squad</code> come from AlifePlus's internal bridge module &mdash; they are not part of any public API. Using them requires reading AlifePlus source code to discover what functions exist and what they are called.</p>
+<p>Also identical in <code>siski_service_filler.script</code>, <code>siski_tasks_registry.script</code>, <code>siski_smart_tasks.script</code>, <code>siski_story_events.script</code>, and <code>siski_story_psy_watchdog.script</code>. Seven copies of the same function that reads AlifePlus's private internal state. The function names <code>should_yield_squad</code> and <code>is_ap_owned_squad</code> come from AlifePlus's internal bridge module &mdash; they are not part of any public API. Using them requires reading AlifePlus source code to discover what functions exist and what they are called. The three additional files were added in SISKI 1.0 (April 10&ndash;11, 2026).</p>
 
 <!-- SISKI Nano analysis moved to nano.html -->
 
 <!-- PATTERN SUMMARY TABLE -->
 <h3>Summary: all patterns traced to AlifePlus</h3>
 <table>
-  <tr><th>Pattern</th><th style="background:rgba(26,127,55,0.08)">AlifePlus (Mar 18)</th><th>SISKI 0.9.4.1 (Mar 12)</th><th style="background:rgba(207,34,46,0.08)">SISKI 0.9.5 (Mar 23-28)</th><th>Days after AP</th></tr>
-  <tr><td>Event bus (pub/sub)</td><td style="background:rgba(26,127,55,0.04)"><code>xbus.script</code>, 5 functions</td><td>Not present</td><td style="background:rgba(207,34,46,0.05)"><code>siski_bus.script</code>, identical</td><td>5</td></tr>
-  <tr><td>Squad callbacks as tick</td><td style="background:rgba(26,127,55,0.04)"><code>enter/leave_smart</code> in producer</td><td><code>actor_on_update</code> loop</td><td style="background:rgba(207,34,46,0.05)"><code>squad_on_update</code> as FSM tick</td><td>5</td></tr>
-  <tr><td>Enter/leave as semantic events</td><td style="background:rgba(26,127,55,0.04)"><code>RADIANT_CALLBACKS</code></td><td>Not used</td><td style="background:rgba(207,34,46,0.05)">Semantic task events</td><td>5</td></tr>
-  <tr><td>Callback forwarder factory</td><td style="background:rgba(26,127,55,0.04)"><code>_create_dispatcher</code></td><td>Not present</td><td style="background:rgba(207,34,46,0.05)"><code>make_callback_forwarder</code></td><td>5</td></tr>
-  <tr><td>Producer/consumer pipeline</td><td style="background:rgba(26,127,55,0.04)">producer &rarr; bus &rarr; consumer</td><td>Monolithic loop</td><td style="background:rgba(207,34,46,0.05)">core &rarr; bus &rarr; modules</td><td>5</td></tr>
-  <tr><td>Off-level throttling</td><td style="background:rgba(26,127,55,0.04)">Bresenham on/off-map gate</td><td>Not present</td><td style="background:rgba(207,34,46,0.05)"><code>offlevel_skip_counter</code></td><td>7</td></tr>
-  <tr><td>Two-phase initialization</td><td style="background:rgba(26,127,55,0.04)"><code>on_game_start</code> &rarr; <code>actor_on_first_update</code></td><td>Not present</td><td style="background:rgba(207,34,46,0.05)">Same two-phase pattern</td><td>5</td></tr>
-  <tr><td>Internals access</td><td style="background:rgba(26,127,55,0.04)">Private tracker fields</td><td>Not present</td><td style="background:rgba(207,34,46,0.05)"><code>rawget(_G, "ap_alife_tracker")</code></td><td>10</td></tr>
+  <tr><th>Pattern</th><th style="background:rgba(26,127,55,0.08)">AlifePlus (Mar 18)</th><th>SISKI 0.9.4.1 (Mar 12)</th><th style="background:rgba(207,34,46,0.08)">SISKI 0.9.5 (Mar 23-28)</th><th style="background:rgba(207,34,46,0.08)">SISKI 1.0 (Apr 10-11)</th></tr>
+  <tr><td>Event bus (pub/sub)</td><td style="background:rgba(26,127,55,0.04)"><code>xbus.script</code>, 5 functions</td><td>Not present</td><td style="background:rgba(207,34,46,0.05)"><code>siski_bus.script</code>, identical</td><td style="background:rgba(207,34,46,0.05)">Unchanged</td></tr>
+  <tr><td>Squad callbacks as tick</td><td style="background:rgba(26,127,55,0.04)"><code>enter/leave_smart</code> in producer</td><td><code>actor_on_update</code> loop</td><td style="background:rgba(207,34,46,0.05)"><code>squad_on_update</code> as FSM tick</td><td style="background:rgba(207,34,46,0.05)">+3 new modules on same pattern</td></tr>
+  <tr><td>Enter/leave as semantic events</td><td style="background:rgba(26,127,55,0.04)"><code>RADIANT_CALLBACKS</code></td><td>Not used</td><td style="background:rgba(207,34,46,0.05)">Semantic task events</td><td style="background:rgba(207,34,46,0.05)">Extended to story events</td></tr>
+  <tr><td>Callback forwarder factory</td><td style="background:rgba(26,127,55,0.04)"><code>_create_reactive_dispatcher</code></td><td>Not present</td><td style="background:rgba(207,34,46,0.05)"><code>make_callback_forwarder</code></td><td style="background:rgba(207,34,46,0.05)">Unchanged</td></tr>
+  <tr><td>Producer/consumer pipeline</td><td style="background:rgba(26,127,55,0.04)">producer &rarr; bus &rarr; consumer</td><td>Monolithic loop</td><td style="background:rgba(207,34,46,0.05)">core &rarr; bus &rarr; modules</td><td style="background:rgba(207,34,46,0.05)">+3 modules as bus consumers</td></tr>
+  <tr><td>Off-level throttling</td><td style="background:rgba(26,127,55,0.04)">Bresenham on/off-map gate</td><td>Not present</td><td style="background:rgba(207,34,46,0.05)"><code>offlevel_skip_counter</code></td><td style="background:rgba(207,34,46,0.05)">Unchanged</td></tr>
+  <tr><td>Two-phase initialization</td><td style="background:rgba(26,127,55,0.04)"><code>on_game_start</code> &rarr; <code>actor_on_first_update</code></td><td>Not present</td><td style="background:rgba(207,34,46,0.05)">Same two-phase pattern</td><td style="background:rgba(207,34,46,0.05)">Unchanged</td></tr>
+  <tr><td>Internals access</td><td style="background:rgba(26,127,55,0.04)">Private tracker fields</td><td>Not present</td><td style="background:rgba(207,34,46,0.05)"><code>rawget</code> into <code>ap_alife_tracker</code></td><td style="background:rgba(207,34,46,0.05)">+3 files consume private fields</td></tr>
+  <tr><td><code>ap_owned_squad</code> copies</td><td style="background:rgba(26,127,55,0.04)">Private bridge API</td><td>Not present</td><td style="background:rgba(207,34,46,0.05)">4 files</td><td style="background:rgba(207,34,46,0.05)">7 files (verbatim copy-paste)</td></tr>
+  <tr><td><code>xsmart.is_arrived</code></td><td style="background:rgba(26,127,55,0.04)"><code>xsmart.script</code> (xlibs)</td><td>Not present</td><td style="background:rgba(207,34,46,0.05)"><code>rawget(_G, "xsmart")</code></td><td style="background:rgba(207,34,46,0.05)">Now called by story events arrival</td></tr>
 </table>
 
 <div class="callout key">
-<strong>Every architectural pattern in SISKI 0.9.5 that did not exist in 0.9.4.1 traces to AlifePlus.</strong> The deleted AI plans explicitly describe transforming SISKI into the AlifePlus architecture. The AlifePlus changelog, architecture.md, and source code were all public before the SISKI refactoring began. The author confirmed on Discord that he studied the code and reactive model.
+<strong>Every architectural pattern in SISKI 0.9.5 that did not exist in 0.9.4.1 traces to AlifePlus.</strong> The deleted AI plans explicitly describe transforming SISKI into the AlifePlus architecture. The AlifePlus changelog, architecture.md, and source code were all public before the SISKI refactoring began. The author confirmed on Discord that he studied the code and reactive model. <strong>SISKI 1.0 (April 10&ndash;11) adds 6,670 lines across 3 new modules that deepen the use of the same stolen patterns.</strong> No infringing code was removed. No attribution was added.
 </div>
 </section>
 
@@ -1108,15 +1110,16 @@ local debugx = false -- "M" sets update and respawn times...</code></pre>
 <p>The SISKI codebase contains patterns consistent with AI-generated code and inconsistent with code written by an experienced STALKER modder. These corroborate the author's admission ("~95% vibe coded", "I'm not a coder and never was"). This section provides supporting context; the copying claims above do not depend on AI detection.</p>
 
 <table>
-  <tr><th>Marker</th><th>Count</th><th>What it means</th></tr>
-  <tr><td><code>pcall</code> wraps</td><td>488</td><td>1 per 59 lines. Comparable mods use near-zero. Many wraps target C++/luabind methods (<code>:commander_id()</code>, <code>:distance_to()</code>, <code>alife():create()</code>) where pcall cannot catch the error &mdash; if the C++ side faults, the engine terminates regardless. These provide false safety that only code generated without understanding the X-Ray runtime boundary would produce.</td></tr>
-  <tr><td><code>_G.</code> prefixed builtins</td><td>305</td><td>27 files. Roblox/WoW addon pattern. STALKER Lua is not sandboxed. Zero other STALKER mods do this.</td></tr>
-  <tr><td>Hallucinated API calls</td><td>22</td><td>5 files. Calls engine functions that do not exist (<code>level.is_surge()</code>, <code>surge_manager.get_surge()</code>, <code>level.get_time_factor()</code>).</td></tr>
-  <tr><td>Nil-guards on stdlib</td><td>23</td><td>Guards against <code>string</code>, <code>math</code>, <code>table</code> being nil. These are never nil in Lua 5.1.</td></tr>
-  <tr><td>Duplicated utility defs</td><td>33</td><td>15+ files. Same function defined identically in multiple files instead of shared module.</td></tr>
-  <tr><td><code>== true</code> redundant</td><td>349</td><td>22 files. AI does not trust Lua truthiness.</td></tr>
-  <tr><td><code>time_global and time_global()</code></td><td>34</td><td>Engine builtin, always exists. No STALKER mod checks if it exists.</td></tr>
-  <tr><td>Lines changed in 2 days</td><td>23,698</td><td>+7,135/-10,881 in one commit, +4,959/-723 in the next. AI agent output committed in bulk.</td></tr>
+  <tr><th>Marker</th><th>0.9.5</th><th>1.0</th><th>What it means</th></tr>
+  <tr><td><code>pcall</code> wraps</td><td>488</td><td>618</td><td>1 per 53 lines. Comparable mods use near-zero. Many wraps target C++/luabind methods (<code>:commander_id()</code>, <code>:distance_to()</code>, <code>alife():create()</code>) where pcall cannot catch the error &mdash; if the C++ side faults, the engine terminates regardless. These provide false safety that only code generated without understanding the X-Ray runtime boundary would produce.</td></tr>
+  <tr><td><code>_G.</code> prefixed builtins</td><td>305</td><td>366</td><td>27 files. Common in sandboxed Lua environments (Roblox, WoW addons). STALKER Lua is not sandboxed &mdash; globals like <code>type</code>, <code>pcall</code>, <code>pairs</code> are always available. This pattern is absent from established STALKER mods (Warfare, ZCP, xcvb Guards, Demonized Looting).</td></tr>
+  <tr><td>Hallucinated API calls</td><td colspan="2">11</td><td>6 files. Calls engine functions that do not exist (<code>level.is_surge()</code>, <code>surge_manager.get_surge()</code>). Guarded by <code>type(fn) == "function"</code> checks that silently pass &mdash; code written by someone who knows the API would not call functions that never existed.</td></tr>
+  <tr><td>Nil-guards on stdlib</td><td colspan="2">23</td><td>Guards against <code>string</code>, <code>math</code>, <code>table</code> being nil. These are never nil in Lua 5.1.</td></tr>
+  <tr><td>Duplicated utility defs</td><td>33</td><td>40+</td><td>15+ files. Same function defined identically in multiple files instead of shared module. <code>ap_owned_squad</code> alone is in 7 files.</td></tr>
+  <tr><td><code>== true</code> redundant</td><td>349</td><td>529</td><td>22 files. AI does not trust Lua truthiness.</td></tr>
+  <tr><td><code>time_global and time_global()</code></td><td>34</td><td>24</td><td>Engine builtin, always exists. No STALKER mod checks if it exists.</td></tr>
+  <tr><td>Lines changed in 2 days</td><td colspan="2">23,698</td><td>+7,135/-10,881 in one commit, +4,959/-723 in the next. AI agent output committed in bulk.</td></tr>
+  <tr><td>Total script lines</td><td>~28,000</td><td>32,729</td><td>+6,670 lines added in 1.0 across 8 days (Apr 3&ndash;11). Three new files total 4,963 lines.</td></tr>
 </table>
 
 <p>For comparison: Vintar0's Warfare (21k lines), Demonized's Mugging Squads (1.9k lines), and xcvb's Guards Spawner (353 lines) contain near-zero instances of any of these patterns.</p>
@@ -1185,7 +1188,7 @@ local debugx = false -- "M" sets update and respawn times...</code></pre>
 
 <footer>
   <p>
-    All findings are based on comparison of <a href="https://github.com/qkff99/siski">github.com/qkff99/siski</a> (all branches, mirrored and archived on 2026-03-29 and 2026-03-30) against source repositories for xlibs, AlifePlus, xcvb's Guards Spawner, and Demonized's NPC Looting. Git commit timestamps are verifiable in both repositories. Code search covered thousands of mods across the STALKER modding ecosystem.
+    All findings are based on comparison of <a href="https://github.com/qkff99/siski">github.com/qkff99/siski</a> (all branches, mirrored and archived on 2026-03-29, 2026-03-30, and re-cloned 2026-04-12 to capture v1.0 changes) against source repositories for xlibs, AlifePlus, xcvb's Guards Spawner, and Demonized's NPC Looting. Git commit timestamps are verifiable in both repositories. Code search covered thousands of mods across the STALKER modding ecosystem.
   </p>
   <p style="margin-top:8px;">
     The deleted AI plans are viewable at their original commit:<br>
