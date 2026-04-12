@@ -339,10 +339,10 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
   <tr><th>Finding</th><th>Evidence</th><th>Section</th></tr>
   <tr><td>Author admitted copying</td><td>Discord: "looked at his reactive model and made an identical one"</td><td><a href="#admissions">&darr;</a></td></tr>
   <tr><td>AI plans prescribe AlifePlus architecture</td><td>Commit <code>b026c90</code>: <code>plan.md</code> + <code>plan_stage2.md</code>, deleted 17h later</td><td><a href="#evidence">&darr;</a></td></tr>
-  <tr><td>Event bus clone (5/5 API functions)</td><td><code>siski_bus.script</code> matches all functions, data structure, algorithm. Zero prior history.</td><td><a href="#e-bus">&darr;</a></td></tr>
-  <tr><td>7 architectural patterns copied</td><td>Bus, callbacks, producer/consumer, throttle, init, bridge, factory. None in SISKI 0.9.4.1.</td><td><a href="#evidence">&darr;</a></td></tr>
+  <tr><td>Event bus clone (5/5 API functions)</td><td><code>siski_bus.script</code> matches all functions, data structure, and algorithm with zero prior history.</td><td><a href="#e-bus">&darr;</a></td></tr>
+  <tr><td>7 architectural patterns copied</td><td>Bus, callbacks, producer/consumer, throttle, init, bridge, factory -- none existed in SISKI 0.9.4.1.</td><td><a href="#evidence">&darr;</a></td></tr>
   <tr><td>All patterns appeared in 5&ndash;7 days</td><td>AlifePlus source published Mar 18. SISKI refactor Mar 23&ndash;28.</td><td><a href="#timeline">&darr;</a></td></tr>
-  <tr><td>v1.0 deepens the same patterns</td><td>3 new modules (Apr 10&ndash;11), +6,670 lines. <code>ap_owned_squad</code> now in 7 files. No code removed, no attribution added.</td><td><a href="#evidence">&darr;</a></td></tr>
+  <tr><td>v1.0 deepens the same patterns</td><td>3 new modules (Apr 10&ndash;11), +6,670 lines. <code>ap_owned_squad</code> now appears in 7 files, with no code removed and no attribution added.</td><td><a href="#evidence">&darr;</a></td></tr>
   <tr><td>Code from other authors unattributed</td><td>Demonized: preserved <code>analse_mode</code> typo. xcvb: verbatim guard data.</td><td><a href="#prior">&darr;</a></td></tr>
   <tr><td>Coordinated retaliation</td><td>Discord call to "strike, shame, ban, ruin". ModDB warnings issued to qkff99.</td><td><a href="#harassment">&darr;</a></td></tr>
 </table>
@@ -446,7 +446,7 @@ git show 6e0fb89:gamedata/scripts/siski_core.script | grep RegisterScriptCallbac
   <tr><td><code>2026-01-24</code></td><td>&mdash;</td><td>qkff99 creates SISKI (<code>a9e0591</code>)</td><td>&mdash;</td></tr>
   <tr style="color:var(--red)"><td><code>2026-01-28</code></td><td>&mdash;</td><td><code>cb7b9c8</code> copies Demonized's code with preserved <code>analse_mode</code> typo</td><td>&mdash;</td></tr>
   <tr><td><code>2026-03-11</code></td><td>&mdash;</td><td>qkff99 adds GPL-3.0 LICENSE with copyright holder placeholder unfilled</td><td>&mdash;</td></tr>
-  <tr><td><code>2026-03-12</code></td><td>Published on ModDB under <strong>Proprietary License</strong></td><td>v0.9.4.1 released. Uses <code>actor_on_update</code> loop. No bus, no squad callbacks.</td><td><strong>Proprietary</strong></td></tr>
+  <tr><td><code>2026-03-12</code></td><td>Published on ModDB under <strong>Proprietary License</strong></td><td>v0.9.4.1 released, using an <code>actor_on_update</code> loop with no bus or squad callbacks.</td><td><strong>Proprietary</strong></td></tr>
   <tr><td><code>2026-03-18</code></td><td>Source published on GitHub (<code>0467946</code>, <code>48c9e10</code>). Architecture.md visible.</td><td>&mdash;</td><td><strong>Proprietary</strong></td></tr>
   <tr style="color:var(--red)"><td><code>2026-03-23</code></td><td>&mdash;</td><td><code>b026c90</code> "big fkin refactoring" &mdash; bus clone, callback rewrite, AI plans naming AlifePlus architecture</td><td><strong>Proprietary</strong></td></tr>
   <tr style="color:var(--red)"><td><code>2026-03-24</code></td><td>&mdash;</td><td><code>885cea0</code> deletes <code>plan.md</code> + <code>plan_stage2.md</code> &mdash; 17 hours after creation</td><td><strong>Proprietary</strong></td></tr>
@@ -470,7 +470,7 @@ git show 6e0fb89:gamedata/scripts/siski_core.script | grep RegisterScriptCallbac
   <tr><td>Proprietary s4(a)</td><td>Mar 18&ndash;29</td><td>No derivative works &mdash; bus + architecture is derivative</td></tr>
   <tr><td>Proprietary s4(c)</td><td>Mar 18&ndash;29</td><td>No reverse engineering &mdash; AI decomposition of source</td></tr>
   <tr><td>Proprietary s5</td><td>Mar 18&ndash;29</td><td>No reproducing design &mdash; reactive pipeline replicated</td></tr>
-  <tr><td>PolyForm Perimeter</td><td>Mar 29&ndash;present</td><td>No competing use, no replication without credit, visible attribution required &mdash; all three broken. Zero attribution across all files</td></tr>
+  <tr><td>PolyForm Perimeter</td><td>Mar 29&ndash;present</td><td>Prohibits competing use, replication without credit, and requires visible attribution &mdash; all three terms were broken with zero attribution across all files</td></tr>
 </table>
 
 <p>Grep across all SISKI <code>.script</code> files (32 at 0.9.5, 33 at 1.0), config files, README, changelog, and LICENSE for: <code>Damian</code>, <code>Sirbu</code>, <code>AlifePlus</code>, <code>xlibs</code>, <code>xbus</code>, <code>xsmart</code>. Result: <strong>zero matches</strong>. SISKI's own GPL-3.0 LICENSE (commit <code>b83ddd0</code>) has the copyright holder placeholder still unfilled: <code>&lt;name of author&gt;</code>.</p>
@@ -609,7 +609,7 @@ return true                       -- ^ same return</code></pre>
   <li>Nil payload defaulted to <code>{}</code> before dispatch</li>
 </ol>
 
-<p><strong>Zero development history.</strong> <code>git log --all --follow -- gamedata/scripts/siski_bus.script</code> shows exactly one commit: <code>b026c90</code>. No prior bus, pub/sub, or event system code existed in any SISKI file before this commit. The file appeared fully formed at 159 lines alongside AI plans that describe its API.</p>
+<p><strong>The file has no development history.</strong> <code>git log --all --follow -- gamedata/scripts/siski_bus.script</code> shows exactly one commit: <code>b026c90</code>. No prior bus, pub/sub, or event system code existed in any SISKI file before this commit. The file appeared fully formed at 159 lines alongside AI plans that describe its API.</p>
 
 <p><strong>100 references across 16 files</strong> (as of v1.0; 93 across 15 at 0.9.5). The bus is the communication layer for the entire mod: <code>siski_core</code> publishes to it, <code>siski_memory</code>, <code>siski_mutants</code>, <code>siski_base_filler</code>, <code>siski_trade</code>, and every other module subscribes to it. Removing <code>siski_bus.script</code> would break SISKI.</p>
 
@@ -725,7 +725,7 @@ end
 
 <p><strong>In plain English:</strong> Most STALKER mods handle everything in one big function. AlifePlus separates the work into three layers: one that detects events, one that routes messages, and one that responds. After the AlifePlus source was published, SISKI adopted the same three-layer design.</p>
 
-<p>AlifePlus uses a three-tier reactive architecture. No other STALKER Anomaly mod uses this separation. The standard approach is monolithic callback handlers or iterator loops.</p>
+<p>AlifePlus uses a three-tier reactive architecture that no other STALKER Anomaly mod implements. The standard approach is monolithic callback handlers or iterator loops.</p>
 
 <div class="mirror">
 <div class="compare-panel">
@@ -1001,7 +1001,7 @@ end</code></pre>
 </table>
 
 <div class="callout key">
-<strong>Every architectural pattern in SISKI 0.9.5 that did not exist in 0.9.4.1 traces to AlifePlus.</strong> The deleted AI plans explicitly describe transforming SISKI into the AlifePlus architecture. The AlifePlus changelog, architecture.md, and source code were all public before the SISKI refactoring began. The author confirmed on Discord that he studied the code and reactive model. <strong>SISKI 1.0 (April 10&ndash;11) adds 6,670 lines across 3 new modules that deepen the use of the same stolen patterns.</strong> No infringing code was removed. No attribution was added.
+<strong>Every architectural pattern in SISKI 0.9.5 that did not exist in 0.9.4.1 traces to AlifePlus.</strong> The deleted AI plans explicitly describe transforming SISKI into the AlifePlus architecture. The AlifePlus changelog, architecture.md, and source code were all public before the SISKI refactoring began. The author confirmed on Discord that he studied the code and reactive model. <strong>SISKI 1.0 (April 10&ndash;11) adds 6,670 lines across 3 new modules that deepen the use of the same stolen patterns.</strong> The infringing code was not removed and no attribution was added.
 </div>
 </section>
 
@@ -1049,7 +1049,7 @@ local debugx = false -- "M" sets update and respawn times...</code></pre>
   and mutant_comms[character_community(npc)]))</code></pre>
   </div>
 </div>
-<p>The typo <code>analse_mode</code> (should be "analyse_mode") exists only in Demonized's code and SISKI's copy. Zero other matches across all STALKER Anomaly mods.</p>
+<p>The typo <code>analse_mode</code> (should be "analyse_mode") exists only in Demonized's code and SISKI's copy, with no other matches found across all STALKER Anomaly mods.</p>
 
 <h3>Other shipped third-party files</h3>
 <p><code>axr_trade_manager.script</code> is a vanilla Anomaly base file (1,496 lines) modified with 50+ SISKI-specific hooks injected directly into the original code. SISKI ships this modified copy as part of the mod without crediting the Anomaly development team.</p>
@@ -1119,7 +1119,7 @@ local debugx = false -- "M" sets update and respawn times...</code></pre>
   <tr><td>Nil-guards on stdlib</td><td colspan="2">23</td><td>Guards against <code>string</code>, <code>math</code>, <code>table</code> being nil. These are never nil in Lua 5.1.</td></tr>
   <tr><td>Duplicated utility defs</td><td>33</td><td>40+</td><td>15+ files. Same function defined identically in multiple files instead of shared module. <code>ap_owned_squad</code> alone is in 7 files.</td></tr>
   <tr><td><code>== true</code> redundant</td><td>349</td><td>529</td><td>22 files. AI does not trust Lua truthiness.</td></tr>
-  <tr><td><code>time_global and time_global()</code></td><td>34</td><td>24</td><td>Engine builtin, always exists. No STALKER mod checks if it exists.</td></tr>
+  <tr><td><code>time_global and time_global()</code></td><td>34</td><td>24</td><td>Engine builtin that always exists -- no STALKER mod checks for its presence.</td></tr>
   <tr><td>Lines changed in 2 days</td><td colspan="2">23,698</td><td>+7,135/-10,881 in one commit, +4,959/-723 in the next. AI agent output committed in bulk.</td></tr>
   <tr><td>Total script lines</td><td>~28,000</td><td>32,729</td><td>+6,670 lines added in 1.0 across 8 days (Apr 3&ndash;11). Three new files total 4,963 lines.</td></tr>
 </table>

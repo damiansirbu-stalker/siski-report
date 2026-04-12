@@ -243,7 +243,7 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
 </ul>
 
 <h3>Fabricated version number</h3>
-<p>"v2.7.0" implies a long development history with 2 major versions and 7 minor releases. No git repository exists. No prior versions exist on ModDB. The first user to install the mod got a fatal crash on basic gameplay. No version with this code could have been tested or iterated on.</p>
+<p>"v2.7.0" implies a long development history with 2 major versions and 7 minor releases, but no git repository exists and no prior versions appear on ModDB. The first user to install the mod got a fatal crash on basic gameplay, which means no version with this code could have been tested or iterated on.</p>
 
 <h3>ModDB readme</h3>
 <p>The ModDB description is approximately 5,500 words in English + 2,000 words in Russian. The section structure mirrors AlifePlus's own ModDB description: "How it works step by step:", numbered bullets, "What makes it realistic:", "PDA notifications:", "What you experience:". The AlifePlus readme was provided to the code generation tool alongside the source, and the AI reproduced the same organizational template for a different mod. Both language versions are semantically identical -- consistent with generation from a single source followed by machine translation.</p>
@@ -465,7 +465,7 @@ end</code></pre>
   </div>
 </div>
 
-<p>Same function. Same argument structure. Same field names. Same priority value (20). Same condition pattern. Only the cause/consequence names differ.</p>
+<p>The function, argument structure, field names, priority value (20), and condition pattern are all identical -- only the cause/consequence names differ.</p>
 
 <h3>4e. Chase configuration -- identical table keys</h3>
 
@@ -641,7 +641,7 @@ LUA error: No such operator defined</code></pre>
 
 <p>The crash propagates through AP's internal pipeline: <code>ap_consumer._process</code> -> <code>xbus.publish</code> -> <code>ap_producer_reactive</code>. Because APS injects directly into AP's dispatch chain via <code>ap_producer_reactive.register()</code> and <code>ap_consumer.register()</code>, a crash in APS code crashes AlifePlus itself for any user who has both installed.</p>
 
-<p>The "v2.7.0" version number in the mod name does not correspond to any observable development history. No git repository exists.</p>
+<p>The "v2.7.0" version number in the mod name does not correspond to any observable development history, and no git repository exists.</p>
 </section>
 
 <!-- 8. SISKI DEPENDENCY -->
@@ -704,7 +704,7 @@ xlibs (original)     --> SISKI 0.9.5 (under DMCA) --> APS v2.7.0 (this mod)</cod
 <p>Individually, none of these similarities would be notable &mdash; many mods solve similar problems. But the <strong>pattern</strong> is that APS's entire feature list was assembled by systematically cataloguing what already exists in the Anomaly modding ecosystem and asking an AI to generate equivalents. Nearly every feature in APS traces to an existing Anomaly mod or to AlifePlus itself. The remainder are generic RPG templates &mdash; personality traits, boss tiers, nickname pools &mdash; with no STALKER-specific grounding.</p>
 
 <div class="callout warn">
-<strong>On ideas vs code:</strong> Gameplay ideas are not copyrightable, and multiple mods can implement similar features. But there is a difference between independently arriving at the same idea and feeding existing mods' source code into an AI to generate equivalents. The original authors &mdash; Demonized, Vintar0, xcvb, dEmergence, bmblbx176, dph-hcl &mdash; spent real time solving these problems. None are credited in APS.
+<strong>On ideas vs code:</strong> Gameplay ideas are not copyrightable, and multiple mods can implement similar features. But there is a difference between independently arriving at the same idea and feeding existing mods' source code into an AI to generate equivalents. The original authors &mdash; Demonized, Vintar0, xcvb, dEmergence, bmblbx176, dph-hcl &mdash; spent real time solving these problems. None of them are credited in APS.
 </div>
 </section>
 

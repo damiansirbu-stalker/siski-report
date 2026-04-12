@@ -402,10 +402,10 @@ end)</code></pre>
   <tr><td>Neither owns the squad</td><td>Both can compete; first to set <code>scripted_target</code> wins</td></tr>
 </table>
 
-<p>No shared state. No direct imports. Just <code>scripted_target</code> + ownership filters.</p>
+<p>There is no shared state or direct imports between mods -- coordination relies entirely on <code>scripted_target</code> and ownership filters.</p>
 
 <h3 id="listen">Listen: Subscribe to Events</h3>
-<p>Subscribe to cause events via xbus. No AP dependency - xlibs only.</p>
+<p>Subscribe to cause events via xbus. This requires only xlibs, with no dependency on AlifePlus.</p>
 <pre><code>function on_game_start()
     xbus.subscribe("cause:massacre", function(e)
         printf("massacre at %s: %d dead", e.level_id, e.total_deaths)
@@ -467,14 +467,14 @@ end</code></pre>
 <p>Mods that register with the pipeline get these facilities without implementing them:</p>
 <table>
   <tr><th>Facility</th><th>What it does</th></tr>
-  <tr><td>5-stage gate chain</td><td>Radiant: PACER -> SCRIPTED -> RATIO -> PROTECTION -> EVAL. Reactive: PACER -> RATIO -> EVAL. Each gate either passes or rejects. No mod code needed.</td></tr>
+  <tr><td>5-stage gate chain</td><td>Radiant: PACER -> SCRIPTED -> RATIO -> PROTECTION -> EVAL. Reactive: PACER -> RATIO -> EVAL. Each gate either passes or rejects, with no mod code required.</td></tr>
   <tr><td>Bresenham ratio gate</td><td>Integer-only on-map vs off-map admission. Distributes callback budget fairly with zero floating-point arithmetic.</td></tr>
   <tr><td>Personality gate</td><td>Per-faction 7-trait behavioral profile (aggression, greed, survival, perception, territory, relation, discipline). Consequences declare which traits gate them. Average of declared traits rolled against per evaluation.</td></tr>
   <tr><td>Rate limiting</td><td>Per-cause sliding window, per-consequence token bucket, global radiant consequence counter. All configurable via MCM.</td></tr>
   <tr><td>Protection stack</td><td>Four guard types (permanent, active role, task target, scripted) + ownership registry. Applied at producer, cause, consequence, and squad search layers.</td></tr>
   <tr><td>Ownership registry</td><td>register_owner(name, filter_fn). Squads matching any filter excluded from AP. Warfare and BAO registered by default.</td></tr>
   <tr><td>Squad lifecycle</td><td>script_squad with TTL, periodic arrival detection, post-arrival wait, automatic unscript. Persists across save/load.</td></tr>
-  <tr><td>Tracing</td><td>Hierarchical trace context (tid + path) flows through the entire pipeline. Zero cost below DEBUG.</td></tr>
+  <tr><td>Tracing</td><td>Hierarchical trace context (tid + path) flows through the entire pipeline at zero cost below DEBUG.</td></tr>
   <tr><td>Logging + profiling</td><td>Structured file logging, microsecond timing via engine timer. Per-module log files, configurable verbosity.</td></tr>
 </table>
 
