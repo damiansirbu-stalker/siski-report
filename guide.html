@@ -44,7 +44,8 @@ body {
 header { margin-bottom: 32px; }
 header h1 { font-size: 24px; font-weight: 600; margin-bottom: 4px; }
 header p { color: var(--fg-dim); font-size: 14px; }
-section { margin-bottom: 40px; }
+section { margin-bottom: 40px; padding-bottom: 32px; border-bottom: 1px solid var(--border); }
+section:last-of-type { border-bottom: none; }
 h2 { font-size: 22px; font-weight: 700; padding-bottom: 6px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
 h3 { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
 p { margin-bottom: 10px; }
@@ -181,13 +182,24 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
     <li><a href="#xlibs">xlibs Toolbox</a></li>
     <li><a href="#alifeplus">AlifePlus Integration</a>
       <ol>
-        <li><a href="#alifeplus">Register</a></li>
-        <li><a href="#alifeplus">Two Mods Collaborating</a></li>
-        <li><a href="#alifeplus">Listen</a></li>
-        <li><a href="#alifeplus">Coordinate</a></li>
+        <li><a href="#register">Register</a></li>
+        <li><a href="#arrival">Arrival</a></li>
+        <li><a href="#chase">Chase</a></li>
+        <li><a href="#collaboration">Two Mods Collaborating</a></li>
+        <li><a href="#listen">Listen</a></li>
+        <li><a href="#coordinate">Coordinate</a></li>
+        <li><a href="#checklist">Checklist</a></li>
       </ol>
     </li>
-    <li><a href="#vision">Architecture</a></li>
+    <li><a href="#vision">Architecture</a>
+      <ol>
+        <li><a href="#problem">Problem</a></li>
+        <li><a href="#design">Design</a></li>
+        <li><a href="#facilities">Framework Facilities</a></li>
+        <li><a href="#pipeline">Pipeline</a></li>
+        <li><a href="#integrations">Potential Integrations</a></li>
+      </ol>
+    </li>
   </ol>
 </nav>
 </div>
@@ -265,7 +277,7 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
 <section id="alifeplus">
 <h2>AlifePlus Integration</h2>
 
-<h3>Register: Add a Cause + Consequence</h3>
+<h3 id="register">Register: Add a Cause + Consequence</h3>
 <p>The primary way to extend AP. Register a predicate and a handler. The framework handles gates, protection, rate limiting, tracing, PDA routing, squad lifecycle.</p>
 
 <pre><code>-- ap_ext_cause_ambush.script
@@ -333,7 +345,7 @@ function on_game_start()
     }, _handler)
 end</code></pre>
 
-<h3>Arrival behavior</h3>
+<h3 id="arrival">Arrival behavior</h3>
 <p>Register an <code>on_arrive</code> function to run when the squad reaches its destination:</p>
 <pre><code>local function _on_arrive(squad, args)
     -- runs when squad reaches destination
@@ -348,7 +360,7 @@ function on_game_start()
 end</code></pre>
 <p>Link arrival to squad: pass <code>on_arrive = CONSEQUENCE.AMBUSH_SETUP</code> in <code>script_squad</code> opts.</p>
 
-<h3>Chase (re-script on arrival)</h3>
+<h3 id="chase">Chase (re-script on arrival)</h3>
 <pre><code>local function _on_arrive(squad, args)
     if not args then return end
     local target = xobject.se(args.target_id)
@@ -365,7 +377,7 @@ end</code></pre>
     end
 end</code></pre>
 
-<h3>Two Alife Mods Collaborating</h3>
+<h3 id="collaboration">Two Alife Mods Collaborating</h3>
 
 <p><code>scripted_target</code> is the engine's built-in coordination mechanism. When any mod sets <code>scripted_target</code> on a squad, the engine switches it from <code>generic_update</code> (simulation re-evaluation) to <code>specific_update</code> (direct A->B movement). Both mods check <code>scripted_target</code> before claiming a squad:</p>
 
@@ -392,7 +404,7 @@ end)</code></pre>
 
 <p>No shared state. No direct imports. Just <code>scripted_target</code> + ownership filters.</p>
 
-<h3>Listen: Subscribe to Events</h3>
+<h3 id="listen">Listen: Subscribe to Events</h3>
 <p>Subscribe to cause events via xbus. No AP dependency - xlibs only.</p>
 <pre><code>function on_game_start()
     xbus.subscribe("cause:massacre", function(e)
@@ -402,7 +414,7 @@ end</code></pre>
 
 <p>Available events: <code>cause:massacre</code>, <code>cause:squadkill</code>, <code>cause:basekill</code>, <code>cause:elite</code>, <code>cause:elitekill</code>, <code>cause:wounded</code>, <code>cause:harvest</code>, <code>cause:stash</code>, <code>cause:area</code>, <code>cause:needs</code>.</p>
 
-<h3>Coordinate: Deep Integration</h3>
+<h3 id="coordinate">Coordinate: Deep Integration</h3>
 <p>Direct access to AP domain systems. APIs may change between versions.</p>
 
 <table>
@@ -420,7 +432,7 @@ end</code></pre>
 </table>
 
 <p><strong>Important:</strong> <code>script_squad</code> has no inline protection check. Caller must verify with <code>is_protected</code>.</p>
-<h3>Checklist: Adding a New Cause + Consequence</h3>
+<h3 id="checklist">Checklist: Adding a New Cause + Consequence</h3>
 <ol>
   <li>Add <code>CAUSE.X</code> to ap_core_const CAUSE table</li>
   <li>Add <code>CONSEQUENCE.X_VERB</code> to ap_core_const CONSEQUENCE table</li>
@@ -439,10 +451,10 @@ end</code></pre>
 <section id="vision">
 <h2>Architecture</h2>
 
-<h3>Problem</h3>
+<h3 id="problem">Problem</h3>
 <p>Most alife mods for Anomaly hook engine callbacks independently, iterate over squads on a timer, implement their own rate limiting, check squad validity in their own way, and set engine fields directly. Each mod operates as a silo with no awareness of other mods controlling the same squads.</p>
 
-<h3>Design</h3>
+<h3 id="design">Design</h3>
 <p>xlibs and AlifePlus are designed as a shared alife layer that mods register to rather than build around. The codebase is split into <strong>core</strong> (ap_core_*) and <strong>ext</strong> (ap_ext_*). Core never imports ext. All domain logic reaches the framework through registered function references.</p>
 
 <ul>
@@ -451,7 +463,7 @@ end</code></pre>
   <li><strong>Mods register domain logic:</strong> a cause predicate and a consequence handler. The framework handles gates, protection, rate limiting, tracing, arrival, and cleanup.</li>
 </ul>
 
-<h3>What the framework provides</h3>
+<h3 id="facilities">What the framework provides</h3>
 <p>Mods that register with the pipeline get these facilities without implementing them:</p>
 <table>
   <tr><th>Facility</th><th>What it does</th></tr>
@@ -466,7 +478,7 @@ end</code></pre>
   <tr><td>Logging + profiling</td><td>Structured file logging, microsecond timing via engine timer. Per-module log files, configurable verbosity.</td></tr>
 </table>
 
-<h3>Pipeline (radiant)</h3>
+<h3 id="pipeline">Pipeline (radiant)</h3>
 <p>Radiant causes fire on <code>squad_on_update</code> (sole radiant source). Five gates, each either passes or rejects. Reactive uses gates 1, 3, 5 only (no SCRIPTED or PROTECTION -- those are handled downstream in consequences).</p>
 
 <div class="pipeline">
@@ -489,7 +501,7 @@ end</code></pre>
   <div class="pipe-node pipe-action"><strong>Handler</strong><small>find squads, script to target, arrival handler, PDA</small></div>
 </div>
 
-<h3>Potential integrations</h3>
+<h3 id="integrations">Potential integrations</h3>
 <p>Examples of how existing alife mods could use the framework instead of reimplementing squad control:</p>
 <table>
   <tr><th>Mod type</th><th>As AP plugin</th></tr>

@@ -60,7 +60,8 @@ header p { color: var(--fg-dim); font-size: 14px; }
 /* TOC (styled via .sidebar nav) */
 
 /* Sections */
-section { margin-bottom: 48px; }
+section { margin-bottom: 48px; padding-bottom: 40px; border-bottom: 1px solid var(--border); }
+section:last-of-type { border-bottom: none; }
 h2 {
   font-size: 22px;
   font-weight: 700;
@@ -70,6 +71,7 @@ h2 {
 }
 h3 { font-size: 16px; font-weight: 600; margin: 20px 0 8px; }
 p { margin-bottom: 12px; }
+p.caption { font-size: 12px; color: var(--fg-dim); margin-top: 4px; margin-bottom: 16px; font-style: italic; }
 
 /* Tables */
 table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }
@@ -1140,11 +1142,13 @@ local debugx = false -- "M" sets update and respawn times...</code></pre>
 <div class="img-row">
   <img class="thumb" src="img/9d58b237c6a850f496ccd227d9a16980.png" alt="Discord organized harassment" style="max-width:320px">
 </div>
+<p class="caption">AOEngine Discord administrator calling for coordinated action against AlifePlus.</p>
 
 <p>A member of the same server, NewGrafon, opened a pull request directly on the AlifePlus GitHub repository titled "Доработка лицензии (S.I.S.K.I.)" (License rework for S.I.S.K.I.) and promoted it in the AOEngine Discord <code>#general-ru</code> channel. The PR contained no code changes &mdash; its sole purpose was to publicly frame AlifePlus as derived from SISKI on the author's own repository.</p>
 <div class="img-row">
   <img class="thumb" src="img/grafon-aoengine.jpg" alt="NewGrafon promoting defamatory PR in AOEngine Discord" style="max-width:320px">
 </div>
+<p class="caption">NewGrafon promoting the defamatory PR in AOEngine Discord.</p>
 
 <h3>ModDB slander campaign</h3>
 <blockquote>
@@ -1154,6 +1158,7 @@ local debugx = false -- "M" sets update and respawn times...</code></pre>
 <div class="img-row">
   <img class="thumb" src="img/moddb-pressure.jpg" alt="ModDB slander" style="max-width:320px">
 </div>
+<p class="caption">False accusation posted on the AlifePlus ModDB page.</p>
 
 <h3>Platform response</h3>
 <ul>
@@ -1172,16 +1177,19 @@ local debugx = false -- "M" sets update and respawn times...</code></pre>
   <img class="thumb" src="img/moddb-siski-warning-1.jpg" alt="ModDB first warning" style="max-width:32%">
   <img class="thumb" src="img/moddb-siski-warning-2.jpg" alt="ModDB second warning" style="max-width:32%">
 </div>
+<p class="caption">ModDB warnings issued to qkff99: initial warning, escalation, and access restriction.</p>
 <div class="img-row">
   <img class="thumb" src="img/report-moddb-qkff.jpg" alt="ModDB report" style="max-width:24%">
   <img class="thumb" src="img/screenshot.1774126828.jpg" alt="ModDB attacks" style="max-width:24%">
   <img class="thumb" src="img/yt-slander.jpg" alt="YouTube slander" style="max-width:24%">
   <img class="thumb" src="img/aoe-unban.png" alt="Discord ban/unban" style="max-width:24%">
 </div>
+<p class="caption">Cross-platform harassment: ModDB report and attacks, YouTube slander, AOEngine Discord ban/unban timeline.</p>
 <div class="img-row">
   <img class="thumb" src="img/moddb-dbolical-1.jpg" alt="ModDB support 1" style="max-width:49%">
   <img class="thumb" src="img/moddb-dbolical-2.jpg" alt="ModDB support 2" style="max-width:49%">
 </div>
+<p class="caption">ModDB/DBolical support confirming coordinated downvote investigation and account bans.</p>
 </section>
 
 <!-- Screenshots section removed -- all screenshots inlined into their relevant sections -->
