@@ -379,13 +379,21 @@ end</code></pre>
 
 <h3 id="collaboration">Two Alife Mods Collaborating</h3>
 
-<p><code>scripted_target</code> is the engine's built-in coordination mechanism. When any mod sets <code>scripted_target</code> on a squad, the engine switches it from <code>generic_update</code> (simulation re-evaluation) to <code>specific_update</code> (direct A->B movement). Both mods check <code>scripted_target</code> before claiming a squad:</p>
+<p>Two fields form the squad control contract: <code>scripted_target</code> routes the squad to <code>specific_update</code> (direct A->B movement). <code>__lock</code> blocks <code>generic_update</code> as a fallback guard &mdash; if another mod clears <code>scripted_target</code> between ticks, the squad stays put instead of being reassigned by SIMBOARD. Every major alife mod (warfare, BAO, Vintar) sets both fields. <code>xsquad</code> provides three primitives:</p>
+
+<pre><code>xsquad.control_squad(squad, smart, rush)   -- acquire: sets scripted_target + __lock
+xsquad.release_squad(squad)                -- release: clears scripted_target + __lock
+xsquad.reassert_target(squad, target)      -- defend: restores both if overwritten</code></pre>
+
+<p>Both mods check <code>scripted_target</code> before claiming a squad:</p>
 
 <pre><code>-- ModA before scripting:
 if se_squad.scripted_target then return end  -- AP (or anyone) has this squad
-se_squad.scripted_target = smart.id
+xsquad.control_squad(squad, smart)
 
 -- AP's PROTECTION gate already does this check automatically.</code></pre>
+
+<p>AP reasserts <code>scripted_target</code> + <code>__lock</code> on its squads every 20s. Squads that die or despawn between scans are removed automatically.</p>
 
 <p>For identity (knowing WHO controls a squad), register an ownership filter:</p>
 
