@@ -301,10 +301,14 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
 
 
 <header>
-  <h1>SISKI ALIFE: Code Copying and License Violation Report</h1>
-  <p>Damian Sirbu, xlibs and AlifePlus developer &middot; Last updated: 2026-04-12 &middot; Subject: SISKI ALIFE mod by qkff99</p>
+  <h1>SISKI ALIFE: Code Theft and License Violation Report</h1>
+  <p>Damian Sirbu, xlibs and AlifePlus developer &middot; Last updated: 2026-04-15 &middot; Subject: SISKI ALIFE mod by qkff99</p>
   <p style="font-size:12px;color:var(--fg-dim)">ModDB: <a href="https://www.moddb.com/mods/stalker-anomaly/addons/reznya">SISKI ALIFE (Reznya)</a> &middot; <a href="https://www.moddb.com/mods/stalker-anomaly/addons/siski-nano-size-alife-anomaly-153">SISKI Nano</a> &middot; GitHub: <a href="https://github.com/qkff99/siski">qkff99/siski</a></p>
 </header>
+
+<div class="callout warn">
+<strong>The "synergy" framing is a cover for systematic code theft.</strong> SISKI and its companion mod APS ("AlifePlus SISKI Synergy") are marketed as complementary tools that work alongside AlifePlus. In reality, SISKI's core infrastructure &mdash; the event bus, the AP bridge, the callback factory &mdash; was copied directly from AlifePlus and xlibs source code using an AI agent. APS then copies AlifePlus's internal architecture, conventions, terminology, and feature designs iteration by iteration, feeding AP's development documents to the same AI. The patterns both mods use <a href="aps.html#uniqueness">exist nowhere else</a> in the STALKER modding ecosystem. This is not collaboration or integration &mdash; it is cloning disguised as compatibility.
+</div>
 
 <div class="callout note">
 <strong>How these projects are meant to be used:</strong> xlibs and AlifePlus are open source under the <a href="https://github.com/damiansirbu-stalker/AlifePlus/blob/main/LICENSE">PolyForm Perimeter License</a>. Other mods are welcome to depend on them, call their functions, subscribe to their events, register causes and consequences, and ship in modpacks &mdash; with visible credit. The <a href="guide.html">usage guide</a> explains the intended integration paths. What the license does not allow is cloning the architecture, reverse-engineering internal systems, or reproducing the implementation in a competing mod.

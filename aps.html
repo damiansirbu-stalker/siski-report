@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>APS v2.7.0: Technical Analysis</title>
+<title>APS: Technical Analysis (v2.7.0 - v2.8.4)</title>
 <style>
 :root {
   --bg: #faf9f6;
@@ -135,9 +135,11 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
   <h2>Contents</h2>
   <ol>
     <li><a href="#overview">Overview</a></li>
+    <li><a href="#v284">v2.8.4: Promise and Re-upload</a></li>
     <li><a href="#mod">The Mod</a></li>
     <li><a href="#authorship">Authorship Indicators</a></li>
     <li><a href="#framework">Framework Pattern Matching</a></li>
+    <li><a href="#uniqueness">Uniqueness Proof</a></li>
     <li><a href="#apis">Internal API Usage</a></li>
     <li><a href="#yans">Design Language and ModDB Description</a></li>
     <li><a href="#crash">Runtime Behavior</a></li>
@@ -151,26 +153,68 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
 <div class="wrap">
 
 <header>
-  <h1>AlifePlus SISKI Synergy (APS) v2.7.0: Technical Analysis</h1>
-  <p>Damian Sirbu, xlibs and AlifePlus developer &middot; 2026-04-05 &middot; Subject: APS by forTheMonolith</p>
-  <p style="font-size:12px;color:var(--fg-dim)">ModDB: <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-siski-synergy-aps-v270">AlifePlus SISKI Synergy v2.7.0</a></p>
+  <h1>AlifePlus SISKI Synergy (APS): Technical Analysis</h1>
+  <p>Damian Sirbu, xlibs and AlifePlus developer &middot; 2026-04-05, updated 2026-04-15 &middot; Subject: APS by forTheMonolith</p>
+  <p style="font-size:12px;color:var(--fg-dim)">ModDB (original, taken down): <a href="https://www.moddb.com/addons/alifeplus-siski-synergy-aps-v270">AlifePlus SISKI Synergy v2.7.0</a><br>
+  ModDB (re-uploaded): <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-siski-synergy-aps-v270">AlifePlus SISKI Synergy v2.7.0</a></p>
 </header>
 
 <section id="overview">
 <h2>Overview</h2>
 
-<p>"AlifePlus SISKI Synergy" (APS) v2.7.0 appeared on <a href="https://www.moddb.com/mods/stalker-anomaly/addons/alifeplus-siski-synergy-aps-v270">ModDB</a> on April 4, 2026. 28 scripts, 6,112 lines of Lua. It depends on xlibs, AlifePlus, and <a href="siski.html">SISKI 0.9.5</a> (which is under a DMCA takedown). Uploaded by forTheMonolith &mdash; whether this is the same person as qkff99 (SISKI author) is unknown, but the patterns are the same: AI-generated code, deep access to AlifePlus internals, no development history, no license file.</p>
+<div class="callout warn">
+<strong>The "synergy" framing is a cover for systematic copying.</strong> APS is marketed as a bridge between AlifePlus and SISKI. In practice, it copies AlifePlus's internal architecture, conventions, terminology, personality system, and feature designs &mdash; iteration by iteration, feeding AP's development documents (<code>architecture.md</code>, <code>conventions.md</code>, <code>manifesto.md</code>) to an AI code generator to produce each new version. The patterns APS uses <a href="#uniqueness">exist nowhere else</a> in the entire STALKER modding ecosystem. This is not integration &mdash; it is cloning.
+</div>
+
+<p>"AlifePlus SISKI Synergy" (APS) v2.7.0 appeared on <a href="https://www.moddb.com/addons/alifeplus-siski-synergy-aps-v270">ModDB</a> on April 4, 2026. 28 scripts, 6,112 lines of Lua. It depends on xlibs, AlifePlus, and <a href="siski.html">SISKI 0.9.5</a> (which is under a DMCA takedown). Uploaded by forTheMonolith. The code is AI-generated, uses AlifePlus's internal architecture as its blueprint, and hard-depends on SISKI &mdash; a mod whose core infrastructure (event bus, AP bridge, callback factory) was <a href="siski.html">stolen from AlifePlus and xlibs</a>.</p>
+
+<p>After this report was published, forTheMonolith <a href="#v284">publicly stated he would take the mod down within 24 hours</a>. Instead, he created a new ModDB page and re-uploaded APS as v2.8.4 with cosmetic changes: a CREDITS.md, a LICENSE file (copied from AlifePlus's PolyForm Perimeter license), and some API cleanup. The architecture copying, internal API usage, and SISKI dependency remain unchanged. With each new AP release, APS updates to match &mdash; tracking AP's internal changes as they happen.</p>
 
 <table>
   <tr><th>Finding</th><th>Evidence</th><th>Section</th></tr>
   <tr><td>AI-generated code</td><td>67 pcall wraps, hallucinated items, empty loops, mechanical uniformity in 28/28 files</td><td><a href="#authorship">&darr;</a></td></tr>
   <tr><td>Internal conventions copied</td><td>Naming, handler structure, config keys, registration loops &mdash; all from <code>conventions.md</code></td><td><a href="#framework">&darr;</a></td></tr>
+  <tr><td>Architecture unique to AP</td><td>observe/result_squads/find_squads_observed/chase_register: zero results in ~2000 GAMMA scripts outside AP. APS is the only mod that uses them.</td><td><a href="#uniqueness">&darr;</a></td></tr>
   <tr><td>70+ undocumented API calls</td><td>Tracing, state manager, chase system, pipeline internals &mdash; vs ~8 documented</td><td><a href="#apis">&darr;</a></td></tr>
-  <tr><td>Design language copied</td><td>"YANS" term and ModDB description structure reproduced from AlifePlus readme</td><td><a href="#yans">&darr;</a></td></tr>
+  <tr><td>Design language copied</td><td>"YANS" term, "radiant"/"reactive" vocabulary, "emergent" philosophy &mdash; all from AP docs</td><td><a href="#yans">&darr;</a></td></tr>
+  <tr><td>Personality values cloned</td><td>APS faction bias table tracks AP's values within 0.1 across all 12 factions</td><td><a href="#features">&darr;</a></td></tr>
+  <tr><td>Promise then re-upload</td><td>forTheMonolith publicly stated "I'm taking the mod down in 24 hours", then created a new ModDB page</td><td><a href="#v284">&darr;</a></td></tr>
   <tr><td>Fatal crash on first test</td><td><code>tostring(vector)</code> at line 182 &mdash; crashes AP's pipeline for all users</td><td><a href="#crash">&darr;</a></td></tr>
   <tr><td>Depends on DMCA'd code</td><td>Requires SISKI 0.9.5, which is under active DMCA takedown</td><td><a href="#siski-dep">&darr;</a></td></tr>
-  <tr><td>License requirements broken</td><td>No LICENSE file, 15+ internal functions accessed, source fed to code generator</td><td><a href="#license">&darr;</a></td></tr>
+  <tr><td>License requirements broken</td><td>v2.7.0: no LICENSE file. v2.8.4: copied AlifePlus's PolyForm Perimeter license verbatim, still depends on stolen SISKI code</td><td><a href="#license">&darr;</a></td></tr>
 </table>
+</section>
+
+<!-- 1b. v2.8.4 PROMISE AND RE-UPLOAD -->
+<section id="v284">
+<h2>v2.8.4: Promise and Re-upload</h2>
+
+<p>After this report was shared (including on the GAMMA Discord, ~700k members), forTheMonolith posted the following on the original APS ModDB page:</p>
+
+<blockquote>
+"Look, I'll be straight with you. There's a technical report out about this mod that's making it more trouble than it's worth. I'm not going to sit here and argue point by point or get into a back and forth with anyone. I made this in my own time, for free, because I love this game and I wanted other people to have a good time in the Zone. That's the entire story. There was no agenda, no money involved, no intention to upset anyone or take credit for anyone else's work. Just a guy wanting to share something with the community. I'm taking the mod down in 24 hours."
+</blockquote>
+
+<p>Instead of taking the mod down, forTheMonolith created a <strong>new ModDB page</strong> and re-uploaded APS as v2.8.4 with the following changes:</p>
+
+<table>
+  <tr><th>Change</th><th>Detail</th></tr>
+  <tr><td>Added CREDITS.md</td><td>Credits xlibs and AlifePlus by Damian Sirbu with license and ModDB links. Credits SISKI by qkff99.</td></tr>
+  <tr><td>Added LICENSE file</td><td>PolyForm Perimeter 1.0.0 &mdash; the same license used by AlifePlus and xlibs, copied verbatim. Copyright "2026 forTheMonolith".</td></tr>
+  <tr><td>Concept inspirations</td><td>Credits Mugging Squads, Dynamic Faction Relations, Nocturnal Mutants, ZCP. Does not credit AlifePlus's alpha/elite system for the boss system.</td></tr>
+  <tr><td>AI disclosure</td><td>"APS is developed with AI assistance (Claude by Anthropic) under author direction."</td></tr>
+</table>
+
+<p>What did <strong>not</strong> change:</p>
+<ul>
+  <li>Architecture copying: same consequence template (observe -> rules -> eval -> action -> PDA -> result_squads)</li>
+  <li>Internal API usage: still calls ~15 undocumented AP-internal functions</li>
+  <li>AP terminology: still uses "radiant", "reactive", "cause predicate", "personality-driven" in code and comments</li>
+  <li>SISKI dependency: still requires SISKI 0.9.5+ (which contains stolen xbus/bridge/factory code)</li>
+  <li>Personality values: faction bias table still tracks AP's PERSONALITY values within 0.1</li>
+</ul>
+
+<p>The "concept inspirations" section in CREDITS.md states: <em>"The implementations in APS are not ports or reimplementations of these mods' code, but the ideas came from them."</em> This is contradicted by the evidence in sections <a href="#framework">4</a>, <a href="#uniqueness">5</a>, and <a href="#apis">6</a> below, which show that APS reproduces AlifePlus's internal architecture, not just its ideas.</p>
 </section>
 
 <!-- 2. THE MOD -->
@@ -538,7 +582,39 @@ end</code></pre>
 <p>The only difference is <code>"ap"</code> vs <code>"aps"</code> -- one character. Everything else is identical: same variable names, same function call, same callback registration, same lifecycle hook.</p>
 </section>
 
-<!-- 5. FRAMEWORK API USAGE -->
+<!-- 5. UNIQUENESS PROOF -->
+<section id="uniqueness">
+<h2>Uniqueness Proof</h2>
+
+<p>AlifePlus's consequence template defines a specific execution pattern: <code>observe(trace, CONSEQUENCE, function() ... end)</code> wrapping, <code>find_squads_observed()</code> for traced entity search, nested <code>observe(trace, ACTION.MOVE_SQUAD, function() ... end)</code>, <code>script_squad()</code> dispatch in a loop, <code>result_squads()</code> return builders, <code>observe(trace, ACTION.SEND_PDA, function() ... end)</code>, and <code>chase_register()</code> for pursuit mechanics. These functions and this pattern exist only in AlifePlus.</p>
+
+<p>To verify this claim, every <code>.script</code> file in the GAMMA mod collection (~2,000 files across all installed mods) was searched for the following function names:</p>
+
+<table>
+  <tr><th>Pattern searched</th><th>Results in GAMMA (excluding AP, xlibs, APS, SISKI)</th></tr>
+  <tr><td><code>result_squads</code></td><td style="color:var(--red)"><strong>0</strong></td></tr>
+  <tr><td><code>find_squads_observed</code></td><td style="color:var(--red)"><strong>0</strong></td></tr>
+  <tr><td><code>find_smart_observed</code></td><td style="color:var(--red)"><strong>0</strong></td></tr>
+  <tr><td><code>.observe(</code></td><td style="color:var(--red)"><strong>0</strong></td></tr>
+  <tr><td><code>RADIANT_CALLBACKS</code></td><td style="color:var(--red)"><strong>0</strong></td></tr>
+  <tr><td><code>chase_register</code></td><td style="color:var(--red)"><strong>0</strong></td></tr>
+</table>
+
+<p><strong>Zero results.</strong> Not one of the ~2,000 GAMMA script files uses any of these patterns. They are not engine functions, not Anomaly utilities, not community conventions. They exist in exactly two places in the entire STALKER modding ecosystem:</p>
+
+<ol>
+  <li><strong>AlifePlus</strong> &mdash; where they were designed and implemented</li>
+  <li><strong>APS</strong> &mdash; where they were copied</li>
+</ol>
+
+<p>The consequence template is not a standard modding pattern that forTheMonolith could have arrived at independently. It is AlifePlus's original architecture, documented in <code>architecture.md</code> and <code>conventions.md</code> &mdash; internal development documents, not a public specification. APS reproduces this architecture function-by-function, with only the consequence names changed.</p>
+
+<div class="callout key">
+<strong>What this proves:</strong> The <a href="#framework">framework pattern matching</a> shown in Section 4 is not coincidental similarity. The patterns APS uses are unique to AlifePlus across the entire modding ecosystem. forTheMonolith's source code was written by feeding AlifePlus's internal architecture documents to an AI code generator.
+</div>
+</section>
+
+<!-- 6. FRAMEWORK API USAGE -->
 <section id="apis">
 <h2>Framework API Usage</h2>
 
@@ -612,6 +688,22 @@ end</code></pre>
   <tr><td>Code comment (<code>aps_cause_wealthy.script:32</code>)</td><td style="color:var(--red)"><em>"YANS: same evaluation logic for player and NPCs"</em></td></tr>
 </table>
 
+<h3>AP-original vocabulary used in APS code</h3>
+
+<p>AlifePlus classifies causes as "radiant" (ambient observations on squad update ticks) and "reactive" (responses to world events). These terms are defined in <code>architecture.md</code> and do not appear in any other STALKER mod. APS uses them as if they are standard terminology:</p>
+
+<table>
+  <tr><th>AP term</th><th>Defined in</th><th>APS usage</th></tr>
+  <tr><td>"radiant" (cause type)</td><td>architecture.md:90</td><td><code>aps_cause_wealthy.script:9</code>, <code>aps_cause_predator.script:2,73</code></td></tr>
+  <tr><td>"reactive" (cause type)</td><td>architecture.md:93</td><td><code>aps_cause_wealthy.script:16</code>, <code>aps_tension.script:2</code></td></tr>
+  <tr><td>"cause predicate"</td><td>architecture.md:19, manifesto.md:34</td><td><code>aps_bridge.script:2,32</code></td></tr>
+  <tr><td>"personality-driven"</td><td>manifesto.md:14, readme.txt:24</td><td><code>aps_bounty.script:249</code>, <code>aps_consequence_wealthy_rob.script:287</code></td></tr>
+  <tr><td>"emergent" (NPC behavior)</td><td>readme.txt:12, manifesto.md</td><td><code>aps_bosses.script:1</code>, <code>aps_faction_memory.script:9</code></td></tr>
+  <tr><td>"_trace" field on event_data</td><td>ap_core_debug internal</td><td>Every APS consequence handler</td></tr>
+</table>
+
+<p>None of these terms exist in any other STALKER mod. They are AlifePlus's internal vocabulary, adopted wholesale by APS because forTheMonolith's AI code generator was fed AP's documentation.</p>
+
 <p>The ModDB description itself follows AlifePlus's readme structure section by section:</p>
 <table>
   <tr><th>Section pattern</th><th style="background:rgba(26,127,55,0.08)">AlifePlus readme</th><th style="background:rgba(207,34,46,0.08)">APS ModDB description</th></tr>
@@ -659,7 +751,49 @@ xlibs (original)     --> SISKI 0.9.5 (under DMCA) --> APS v2.7.0 (this mod)</cod
 <section id="features">
 <h2>Feature Set Cloning</h2>
 
-<p>Beyond the framework and API usage documented above, APS's feature list is assembled from ideas found in existing Anomaly mods and in AlifePlus itself. The code implementations differ, but the gameplay concepts are taken directly from these sources without acknowledgment.</p>
+<p>Beyond the framework and API usage documented above, APS's feature list is assembled from ideas found in existing Anomaly mods and in AlifePlus itself. Several features are direct clones of AlifePlus systems with the names changed.</p>
+
+<h3>9a. Boss system = Alpha system renamed</h3>
+
+<p>AlifePlus has an alpha/elite promotion system (<code>ap_ext_consequence_alpha_promote</code>, <code>ap_ext_tracker</code>). APS has a "boss" system (<code>aps_bosses</code>). They are the same design:</p>
+
+<table>
+  <tr><th>Feature</th><th>AlifePlus Alpha</th><th>APS Boss</th></tr>
+  <tr><td>Emergence</td><td>Mutants accumulate kills</td><td>"Squads earn boss status through survival and combat"</td></tr>
+  <tr><td>Tiers</td><td>10 levels (kill_count / kills_per_level)</td><td>3 tiers (Lieutenant / Captain / Warlord)</td></tr>
+  <tr><td>Combat buff</td><td>Hit power bonus + reduction per level</td><td>Rank boost (300 / 600 / 900)</td></tr>
+  <tr><td>Special behavior</td><td>Panic immunity</td><td>&mdash;</td></tr>
+  <tr><td>Loot</td><td>Per-species ALPHA_LOOT injected into inventory</td><td>Per-tier gear tables injected</td></tr>
+  <tr><td>Map markers</td><td><code>add_marked_squad()</code></td><td>PDA markers + zone-wide gossip</td></tr>
+  <tr><td>Tracking</td><td><code>_ap_alphas</code> table, persisted</td><td><code>_bosses</code> table, persisted</td></tr>
+  <tr><td>Philosophy</td><td>"emergent behavior nobody scripted"</td><td>"Nobody is appointed &mdash; the Zone's natural selection produces its own leaders"</td></tr>
+</table>
+
+<p>The APS code comment (<code>aps_bosses.script:2-3</code>) even uses the same language as AlifePlus's readme &mdash; "natural selection produces its own leaders" mirrors AlifePlus's "emergent behavior nobody scripted." No other STALKER mod describes NPC promotion systems with the phrase "natural selection."</p>
+
+<h3>9b. Personality values derived from AlifePlus</h3>
+
+<p>AlifePlus defines per-faction personality traits in <code>ap_ext_const.script</code> (7 traits, 12 factions + 17 species, sourced from GSC AI design documents). APS defines a parallel table in <code>aps_personality.script</code> (4 traits, 12 factions). The values are suspiciously close:</p>
+
+<table>
+  <tr><th>Faction</th><th>AP aggression</th><th>APS aggression</th><th>AP greed</th><th>APS greed</th></tr>
+  <tr><td>monolith</td><td>0.90</td><td style="color:var(--red)"><strong>0.90</strong></td><td>0.10</td><td style="color:var(--red)"><strong>0.10</strong></td></tr>
+  <tr><td>ecolog</td><td>0.20</td><td style="color:var(--red)"><strong>0.20</strong></td><td>0.30</td><td style="color:var(--red)"><strong>0.30</strong></td></tr>
+  <tr><td>killer</td><td>0.70</td><td style="color:var(--red)"><strong>0.70</strong></td><td>0.70</td><td>0.60</td></tr>
+  <tr><td>dolg</td><td>0.70</td><td>0.60</td><td>0.20</td><td style="color:var(--red)"><strong>0.20</strong></td></tr>
+  <tr><td>army</td><td>0.60</td><td>0.50</td><td>0.10</td><td>0.20</td></tr>
+  <tr><td>bandit</td><td>0.40</td><td>0.50</td><td>0.90</td><td>0.80</td></tr>
+  <tr><td>renegade</td><td>0.30</td><td>0.40</td><td>0.90</td><td>0.70</td></tr>
+  <tr><td>stalker</td><td>0.50</td><td>0.40</td><td>0.70</td><td>0.40</td></tr>
+  <tr><td>freedom</td><td>0.50</td><td style="color:var(--red)"><strong>0.50</strong></td><td>0.50</td><td>0.30</td></tr>
+  <tr><td>csky</td><td>0.40</td><td style="color:var(--red)"><strong>0.50</strong></td><td>0.30</td><td style="color:var(--red)"><strong>0.30</strong></td></tr>
+  <tr><td>greh</td><td>0.80</td><td>0.70</td><td>0.70</td><td>0.50</td></tr>
+  <tr><td>isg</td><td>0.50</td><td>0.60</td><td>0.20</td><td>0.50</td></tr>
+</table>
+
+<p>Multiple exact matches (highlighted). All values within 0.1-0.2. AlifePlus's values are derived from GSC's AI design documents (Ai.doc personality axes, cited in code). APS provides no source for its values. The simplest explanation: the AI was given AP's personality table and told to generate a "different" version.</p>
+
+<h3>9c. Feature set comparison</h3>
 
 <table>
   <tr><th>APS feature</th><th>Source</th><th>Original author</th><th>What was taken</th></tr>
@@ -712,24 +846,33 @@ xlibs (original)     --> SISKI 0.9.5 (under DMCA) --> APS v2.7.0 (this mod)</cod
 <section id="license">
 <h2>License</h2>
 
-<p>Both AlifePlus and xlibs use the PolyForm Perimeter License. The <a href="guide.html">usage guide</a> explains what is permitted.</p>
+<p>Both AlifePlus and xlibs use the PolyForm Perimeter License 1.0.0.</p>
 
+<h3>v2.7.0</h3>
 <table>
   <tr><th>Requirement</th><th>Status</th><th>Detail</th></tr>
-  <tr><td>Visible credit for AlifePlus</td><td>Partial</td><td>Present in ModDB description. Not in the mod package (no LICENSE, README, or credits file).</td></tr>
-  <tr><td>Visible credit for xlibs</td><td>Partial</td><td>Same -- ModDB only.</td></tr>
-  <tr><td>No reverse engineering internals</td><td>Broken</td><td>Uses 15+ non-public internal functions. AP's internal tracing, chase system, and state manager are called directly rather than through the <a href="guide.html">public API surface</a>.</td></tr>
-  <tr><td>No automated extraction</td><td>Broken</td><td>Complete source was provided to a code generation tool. The resulting code reproduces internal conventions character-for-character.</td></tr>
+  <tr><td>LICENSE file</td><td style="color:var(--red)">Missing</td><td>No license file in the mod package.</td></tr>
+  <tr><td>Credits file</td><td style="color:var(--red)">Missing</td><td>No credits file. ModDB description only.</td></tr>
+  <tr><td>Source fed to AI</td><td style="color:var(--red)">Broken</td><td>Complete AP/xlibs source provided to a code generation tool. Reproduces internal conventions character-for-character.</td></tr>
 </table>
 
-<div class="callout key">
-<strong>How to make this compliant:</strong> The features APS implements could work within the <a href="guide.html">documented integration path</a>. Replace internal API calls (<code>ap_debug.observe</code>, <code>ap_alife_tracker.script_squad</code>, <code>ap_utils.chase_start</code>) with their public equivalents (<code>xsquad.control_squad</code>, <code>xsquad.target_actor</code>, xbus subscriptions). Add a LICENSE file to the mod. If deeper integration is needed, <a href="guide.html">coordinate with the author</a> to establish proper APIs.
-</div>
+<h3>v2.8.4</h3>
+<p>After promising to take the mod down, forTheMonolith re-uploaded with cosmetic compliance changes:</p>
+<table>
+  <tr><th>Change</th><th>Status</th><th>Detail</th></tr>
+  <tr><td>LICENSE file added</td><td style="color:var(--yellow)">Added</td><td>PolyForm Perimeter 1.0.0 &mdash; <strong>the same license used by AlifePlus</strong>, copied verbatim. Copyright "2026 forTheMonolith".</td></tr>
+  <tr><td>CREDITS.md added</td><td style="color:var(--yellow)">Added</td><td>Credits xlibs and AlifePlus by Damian Sirbu. Does not credit AlifePlus for the boss system (derived from AP's alpha/elite system).</td></tr>
+  <tr><td>Architecture copying</td><td style="color:var(--red)">Unchanged</td><td>Still reproduces AP's consequence template, internal API calls, and terminology. Updated to match AP's latest code with each iteration.</td></tr>
+  <tr><td>SISKI dependency</td><td style="color:var(--red)">Unchanged</td><td>Still hard-depends on SISKI 0.9.5+, which contains stolen xbus/bridge/factory code under active DMCA takedown.</td></tr>
+  <tr><td>Source fed to AI</td><td style="color:var(--red)">Unchanged</td><td>CREDITS.md explicitly states: "APS is developed with AI assistance (Claude by Anthropic) under author direction." The AI is fed AP's architecture.md, conventions.md, and source code to produce each iteration.</td></tr>
+</table>
+
+<p>The CREDITS.md claims: <em>"The implementations in APS are not ports or reimplementations of these mods' code."</em> The <a href="#uniqueness">uniqueness proof</a> contradicts this directly: the patterns APS uses exist nowhere in the STALKER modding ecosystem except AlifePlus.</p>
 </section>
 
 <footer>
   <p>
-    Analysis of APS v2.7.0 from ModDB (MD5: <code>9bb9bfa7de23de3b95e37bb388669b75</code>). Comparison against AlifePlus and xlibs source. For the SISKI case, see <a href="siski.html">the SISKI report</a>. For proper integration guidance, see <a href="guide.html">the usage guide</a>.
+    Analysis of APS v2.7.0 from ModDB (MD5: <code>9bb9bfa7de23de3b95e37bb388669b75</code>) and APS v2.8.4 (re-upload). Comparison against AlifePlus and xlibs source. Uniqueness verified against ~2,000 GAMMA .script files. For the SISKI case, see <a href="siski.html">the SISKI report</a>. For proper integration guidance, see <a href="guide.html">the usage guide</a>.
   </p>
 </footer>
 
