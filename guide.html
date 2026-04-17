@@ -283,17 +283,28 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
 <pre><code>-- ap_ext_cause_ambush.script
 local CAUSE = ap_core_const.CAUSE
 local CAUSE_TYPE = ap_core_const.CAUSE_TYPE
+local RESULT = ap_core_const.RESULT
+local REASON = ap_core_const.REASON
 local cfg = ap_core_mcm.cfg
 
 local function _predicate(trace, squad)
-    if not cfg.cause_ambush_enabled then return nil end
-    local smart = xsmart.nearest_empty(squad, 300)
-    if not smart then return nil end
+    if not cfg.cause_ambush_enabled then return { code = RESULT.FAILED_RULES } end
+
+    local level_id = xlevel.get_level_id(squad)
+    if not level_id then return { code = RESULT.FAILED_RULES, reason = REASON.NO_LEVEL_ID } end
+
+    local smart = ap_core_utils.find_smart(squad.position, {
+        level_id = level_id, max_distance = ap_core_const.RANGE_EYE,
+        filter = xsmart.is_smart_empty,
+    })
+    if not smart then return { code = RESULT.FAILED_RULES, reason = REASON.NO_SMART } end
+
     return {
         cause = CAUSE.AMBUSH,
         squad_id = squad.id,
+        community = squad.player_id,
         smart_id = smart.id,
-        level_id = xlevel.get_level_id(squad),
+        level_id = level_id,
         position = squad.position,
     }
 end
@@ -312,78 +323,109 @@ local RESULT = ap_core_const.RESULT
 local REASON = ap_core_const.REASON
 local CONSEQUENCE = ap_core_const.CONSEQUENCE
 local CAUSE = ap_core_const.CAUSE
+local ACTION = ap_core_const.ACTION
+local PERSONALITY = ap_ext_const.PERSONALITY
 local cfg = ap_core_mcm.cfg
 
+local _alignment = ap_ext_const.alignment_outlaw
+local _personality = { PERSONALITY.AGGRESSION, PERSONALITY.GREED }
+
+local function _on_arrive(squad, args)
+    -- runs when squad reaches destination smart
+end
+
 local function _handler(event_data)
-    if not cfg.consequence_ambush_setup_enabled then
-        return { code = RESULT.DISABLED_NEXT }
-    end
-    local smart = xobject.se(event_data.smart_id)
-    if not smart then
-        return { code = RESULT.RULES_NEXT, reason = REASON.NO_SMART }
-    end
-    local squads = ap_core_utils.find_squads_observed(event_data._trace, event_data.position, {
-        factions = ap_ext_const.community_outlaw,
-        level_id = event_data.level_id,
-        max_distance = ap_core_const.RADIUS_DISTANT_MAX,
-    })
-    if not squads or #squads == 0 then
-        return { code = RESULT.RULES_NEXT, reason = REASON.NO_SQUADS }
-    end
-    for i = 1, #squads do
-        ap_core_squad.script_squad(squads[i], smart, {
-            on_arrive = CONSEQUENCE.AMBUSH_SETUP,
+    local trace = event_data._trace
+    return ap_core_debug.observe(trace, CONSEQUENCE.AMBUSH_SETUP, function()
+
+        -- RULES: alignment, personality, validation
+        if not ap_ext_util.check_alignment(_alignment, event_data.community) then
+            return { code = RESULT.FAILED_RULES, reason = REASON.WRONG_ALIGNMENT }
+        end
+        if not ap_ext_util.check_personality(_personality, event_data.community,
+            CONSEQUENCE.AMBUSH_SETUP, cfg.consequence_ambush_setup_personality_min,
+            cfg.consequence_ambush_setup_personality_max) then
+            return { code = RESULT.FAILED_RULES, reason = REASON.LOW_PERSONALITY }
+        end
+
+        -- EVAL: world queries
+        local smart = xobject.se(event_data.smart_id)
+        if not smart then return { code = RESULT.FAILED_EVAL, reason = REASON.NO_SMART } end
+
+        local squads = ap_core_utils.find_squads_observed(trace, event_data.position, {
+            factions = _alignment,
+            level_id = event_data.level_id,
+            max_distance = ap_core_const.RANGE_SIGNAL,
+            max_count = cfg.consequence_ambush_setup_max_squads,
+            exclude_at_smart_id = smart.id,
         })
-    end
-    return { code = RESULT.OK_STOP, count = #squads }
+        if #squads == 0 then return { code = RESULT.FAILED_EVAL, reason = REASON.NO_SQUAD } end
+
+        -- ACTION: script squads, record activity
+        local moved = {}
+        ap_core_debug.observe(trace, ACTION.MOVE_SQUAD, function()
+            for i = 1, #squads do
+                local res = ap_core_broker.script_squad(squads[i], smart, {
+                    rush = cfg.consequence_ambush_setup_rush,
+                    on_arrive = CONSEQUENCE.AMBUSH_SETUP,
+                    pre_release_gulag = 1800,
+                })
+                if res.code == RESULT.SUCCESS then moved[#moved + 1] = squads[i] end
+            end
+            return ap_core_debug.result_squads(moved, { dst_id = smart.id })
+        end)
+        if #moved == 0 then return { code = RESULT.FAILED_ACTION, reason = REASON.MOVE_FAILED } end
+
+        for i = 1, #moved do
+            ap_core_broker.record(moved[i].id, CAUSE.AMBUSH, CONSEQUENCE.AMBUSH_SETUP)
+        end
+
+        return ap_core_debug.result_squads(moved, { code = RESULT.SUCCESS, dst_id = smart.id })
+    end)
 end
 
 function on_game_start()
     ap_core_consumer.register(CONSEQUENCE.AMBUSH_SETUP, {
         event = CAUSE.AMBUSH,
-        personality = { PERSONALITY.AGGRESSION, PERSONALITY.GREED },
-    }, _handler)
-end</code></pre>
-
-<h3 id="arrival">Arrival behavior</h3>
-<p>Register an <code>on_arrive</code> function to run when the squad reaches its destination:</p>
-<pre><code>local function _on_arrive(squad, args)
-    -- runs when squad reaches destination
-end
-
-function on_game_start()
-    ap_core_consumer.register(CONSEQUENCE.AMBUSH_SETUP, {
-        event = CAUSE.AMBUSH,
-        personality = { PERSONALITY.AGGRESSION, PERSONALITY.GREED },
+        condition = function() return cfg.consequence_ambush_setup_enabled end,
         on_arrive = _on_arrive,
     }, _handler)
 end</code></pre>
-<p>Link arrival to squad: pass <code>on_arrive = CONSEQUENCE.AMBUSH_SETUP</code> in <code>script_squad</code> opts.</p>
 
 <h3 id="chase">Chase (re-script on arrival)</h3>
+<p>For consequences that pursue a moving target, the arrival handler re-scripts the squad to the target's new location. Each re-script increments a chase counter. The squad gives up after <code>max_chases</code>.</p>
 <pre><code>local function _on_arrive(squad, args)
-    if not args then return end
-    local target = xobject.se(args.target_id)
-    if not target then return end
-    args.chase_count = (args.chase_count or 0) + 1
-    if args.chase_count > cfg.consequence_ambush_chase_max then return end
-    local smart = xsmart.get_smart(target)
-    if smart then
-        ap_core_squad.script_squad(squad, smart, {
-            rush = true,
-            on_arrive = CONSEQUENCE.AMBUSH_CHASE,
-            on_arrive_args = args,
-        })
-    end
+    if not args or not args.target_squad_id then return end
+    local chase_count = (args.chase_count or 0) + 1
+    if chase_count > cfg.consequence_ambush_setup_max_chases then return end
+
+    local target_squad = xobject.se(args.target_squad_id)
+    if not target_squad then return end
+
+    local level_id = xlevel.get_level_id(target_squad)
+    if not level_id or xlevel.get_level_id(squad) ~= level_id then return end
+
+    local smart = ap_core_utils.find_smart(target_squad.position, {
+        level_id = level_id, max_distance = ap_core_const.RANGE_SIGNAL,
+    })
+    if not smart then return end
+
+    ap_core_broker.script_squad(squad, smart, {
+        rush = cfg.consequence_ambush_setup_rush,
+        on_arrive = CONSEQUENCE.AMBUSH_SETUP,
+        on_arrive_args = { target_squad_id = args.target_squad_id, chase_count = chase_count },
+        pre_release_gulag = 1800,
+    })
 end</code></pre>
+<p>Link arrival to squad: pass <code>on_arrive = CONSEQUENCE.AMBUSH_SETUP</code> in <code>script_squad</code> opts. The broker matches the key to the handler registered via <code>consumer.register(..., { on_arrive = _on_arrive })</code>.</p>
 
 <h3 id="collaboration">Two Alife Mods Collaborating</h3>
 
-<p>Two fields form the squad control contract: <code>scripted_target</code> routes the squad to <code>specific_update</code> (direct A->B movement). <code>__lock</code> blocks <code>generic_update</code> as a fallback guard &mdash; if another mod clears <code>scripted_target</code> between ticks, the squad stays put instead of being reassigned by SIMBOARD. Every major alife mod (warfare, BAO, Vintar) sets both fields. <code>xsquad</code> provides three primitives:</p>
+<p><code>scripted_target</code> is the squad control field. Setting it routes the squad to <code>specific_update</code> (direct A->B movement). <code>xsquad</code> provides three primitives:</p>
 
-<pre><code>xsquad.control_squad(squad, smart, rush)   -- acquire: sets scripted_target + __lock
+<pre><code>xsquad.control_squad(squad, smart, rush)   -- acquire: sets scripted_target, clears __lock
 xsquad.release_squad(squad)                -- release: clears scripted_target + __lock
-xsquad.reassert_target(squad, target)      -- defend: restores both if overwritten</code></pre>
+xsquad.reassert_target(squad, target)      -- defend: restores scripted_target if overwritten</code></pre>
 
 <p>Both mods check <code>scripted_target</code> before claiming a squad:</p>
 
@@ -393,12 +435,12 @@ xsquad.control_squad(squad, smart)
 
 -- AP's PROTECTION gate already does this check automatically.</code></pre>
 
-<p>AP reasserts <code>scripted_target</code> + <code>__lock</code> on its squads every 20s. Squads that die or despawn between scans are removed automatically.</p>
+<p>AP reasserts <code>scripted_target</code> on its squads every 20s. Squads that die or despawn between scans are removed automatically.</p>
 
 <p>For identity (knowing WHO controls a squad), register an ownership filter:</p>
 
 <pre><code>-- In ModA's on_game_start:
-ap_core_squad.register_owner("warfare", function(squad)
+ap_core_broker.register_owner("warfare", function(squad)
     return squad.registered_with_warfare == true
 end)</code></pre>
 
@@ -420,23 +462,27 @@ end)</code></pre>
     end, "my_mod_listener")
 end</code></pre>
 
-<p>Available events: <code>cause:massacre</code>, <code>cause:squadkill</code>, <code>cause:basekill</code>, <code>cause:elite</code>, <code>cause:elitekill</code>, <code>cause:wounded</code>, <code>cause:harvest</code>, <code>cause:stash</code>, <code>cause:area</code>, <code>cause:needs</code>.</p>
+<p>Available events: <code>cause:massacre</code>, <code>cause:squadkill</code>, <code>cause:basekill</code>, <code>cause:alpha</code>, <code>cause:alphakill</code>, <code>cause:wounded</code>, <code>cause:harvest</code>, <code>cause:stash</code>, <code>cause:area</code>, <code>cause:needs</code>, <code>cause:instincts</code>.</p>
 
 <h3 id="coordinate">Coordinate: Deep Integration</h3>
 <p>Direct access to AP domain systems. APIs may change between versions.</p>
 
 <table>
   <tr><th>Module</th><th>Function</th><th>Returns</th></tr>
-  <tr><td>Tracker</td><td><code>get_elite(entity_id)</code></td><td>elite data table (level, kills, name) or nil</td></tr>
-  <tr><td>Tracker</td><td><code>get_elite_level(entity_id)</code></td><td>integer level or 0</td></tr>
-  <tr><td>Tracker</td><td><code>is_elite(entity_id)</code></td><td>boolean</td></tr>
+  <tr><td>Tracker</td><td><code>get_alpha(entity_id)</code></td><td>alpha data table (level, kills, name) or nil</td></tr>
+  <tr><td>Tracker</td><td><code>get_alpha_level(entity_id)</code></td><td>integer level or 0</td></tr>
+  <tr><td>Tracker</td><td><code>is_alpha(entity_id)</code></td><td>boolean</td></tr>
+  <tr><td>Tracker</td><td><code>get_alphas()</code></td><td>all alphas table</td></tr>
   <tr><td>Tracker</td><td><code>get_stalker_needs(squad_id)</code></td><td>needs DTO timestamps</td></tr>
+  <tr><td>Tracker</td><td><code>get_mutant_instincts(squad_id)</code></td><td>instinct DTO timestamps</td></tr>
   <tr><td>Smart Mutator</td><td><code>conquer_smart(smart_id, faction)</code></td><td>set faction ownership with FIFO eviction</td></tr>
-  <tr><td>Squad</td><td><code>script_squad(squad, smart, opts)</code></td><td>script with lifecycle</td></tr>
-  <tr><td>Squad</td><td><code>is_protected(squad)</code></td><td>check all guards</td></tr>
-  <tr><td>Squad</td><td><code>register_owner(name, filter_fn)</code></td><td>register ownership filter</td></tr>
-  <tr><td>Squad</td><td><code>get_owner(squad)</code></td><td>ownership query</td></tr>
-  <tr><td>Squad</td><td><code>get_scripted_ids()</code></td><td>read-only scripted squads table</td></tr>
+  <tr><td>Broker</td><td><code>script_squad(squad, smart, opts)</code></td><td>script with lifecycle</td></tr>
+  <tr><td>Broker</td><td><code>is_protected(squad)</code></td><td>check all guards</td></tr>
+  <tr><td>Broker</td><td><code>register_owner(name, filter_fn)</code></td><td>register ownership filter (replaces on name match)</td></tr>
+  <tr><td>Broker</td><td><code>get_owner(squad)</code></td><td>ownership query</td></tr>
+  <tr><td>Broker</td><td><code>record(squad_id, cause, consequence, opts)</code></td><td>record squad activity (markers, external queries)</td></tr>
+  <tr><td>Broker</td><td><code>get_record(squad_id)</code></td><td>activity record or nil</td></tr>
+  <tr><td>Broker</td><td><code>get_scripted_ids()</code></td><td>read-only scripted squads table</td></tr>
 </table>
 
 <p><strong>Important:</strong> <code>script_squad</code> has no inline protection check. Caller must verify with <code>is_protected</code>.</p>
@@ -467,7 +513,7 @@ end</code></pre>
 
 <ul>
   <li><strong>xlibs provides invariants:</strong> event bus (publish/subscribe), squad safety (protection checks via is_protected composite guard, scripting, release), smart terrain queries, entity resolution, and shared utilities (logging, profiling, time, math)</li>
-  <li><strong>AlifePlus core provides the pipeline:</strong> a 5-gate radiant dispatcher and 3-gate reactive dispatcher, cause/consequence routing via xbus, a personality gate (per-faction trait-based behavioral filtering), an ownership registry (register_owner/get_owner -- mods declare which squads they control), squad lifecycle management (scripting with TTL, arrival detection, post-arrival wait, automatic unscript), and multi-layer rate limiting (pacer, Bresenham ratio, per-cause/consequence budgets, global radiant consequence counter)</li>
+  <li><strong>AlifePlus core provides the pipeline:</strong> a 4-gate radiant dispatcher and 3-gate reactive dispatcher, cause/consequence routing via xbus, a personality gate (per-faction trait-based behavioral filtering), an ownership registry (register_owner/get_owner -- mods declare which squads they control), squad lifecycle management (scripting with TTL, arrival detection, post-arrival wait, automatic unscript), and multi-layer rate limiting (pacer, Bresenham ratio, per-cause/consequence budgets, global radiant consequence counter)</li>
   <li><strong>Mods register domain logic:</strong> a cause predicate and a consequence handler. The framework handles gates, protection, rate limiting, tracing, arrival, and cleanup.</li>
 </ul>
 
@@ -475,7 +521,7 @@ end</code></pre>
 <p>Mods that register with the pipeline get these facilities without implementing them:</p>
 <table>
   <tr><th>Facility</th><th>What it does</th></tr>
-  <tr><td>5-stage gate chain</td><td>Radiant: PACER -> SCRIPTED -> RATIO -> PROTECTION -> EVAL. Reactive: PACER -> RATIO -> EVAL. Each gate either passes or rejects, with no mod code required.</td></tr>
+  <tr><td>4-gate chain</td><td>Radiant: PACER_1 -> is_protected -> RATIO -> PACER_2 -> EVAL (cascade). Reactive: PACER -> RATIO -> EVAL (all). Each gate either passes or rejects, with no mod code required.</td></tr>
   <tr><td>Bresenham ratio gate</td><td>Integer-only on-map vs off-map admission. Distributes callback budget fairly with zero floating-point arithmetic.</td></tr>
   <tr><td>Personality gate</td><td>Per-faction 7-trait behavioral profile (aggression, greed, survival, perception, territory, relation, discipline). Consequences declare which traits gate them. Average of declared traits rolled against per evaluation.</td></tr>
   <tr><td>Rate limiting</td><td>Per-cause sliding window, per-consequence token bucket, global radiant consequence counter. All configurable via MCM.</td></tr>
@@ -487,26 +533,26 @@ end</code></pre>
 </table>
 
 <h3 id="pipeline">Pipeline (radiant)</h3>
-<p>Radiant causes fire on <code>squad_on_update</code> (sole radiant source). Five gates, each either passes or rejects. Reactive uses gates 1, 3, 5 only (no SCRIPTED or PROTECTION -- those are handled downstream in consequences).</p>
+<p>Radiant causes fire on <code>squad_on_update</code> (sole radiant source). Four gates, each either passes or rejects. Reactive uses PACER (per-callback token bucket) + RATIO + EVAL only (protection handled downstream in causes and consequences).</p>
 
 <div class="pipeline">
   <div class="pipe-node pipe-entry"><strong>squad_on_update</strong><small>engine callback, fires every tick per squad</small></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node pipe-gate"><strong>1. PACER</strong><small>os.clock timestamp, MCM-configurable interval</small><span class="pipe-reject">rejects ~99% of calls</span></div>
+  <div class="pipe-node pipe-gate"><strong>1. PACER_1</strong><small>os.clock 100ms coarse limiter, ~10/sec. No squad fields, 0 luabind.</small><span class="pipe-reject">rejects ~98% of calls</span></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node pipe-gate"><strong>2. SCRIPTED</strong><small>hash lookup: squad already under AP control?</small><span class="pipe-reject">already scripted: skip</span></div>
+  <div class="pipe-node pipe-gate"><strong>2. is_protected</strong><small>owned? scripted? permanent? active role? task target?</small><span class="pipe-reject">protected: skip</span></div>
   <div class="pipe-arrow"></div>
   <div class="pipe-node pipe-gate"><strong>3. RATIO</strong><small>Bresenham integer admission, on-map vs off-map</small><span class="pipe-reject">ratio exceeded: skip</span></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node pipe-gate"><strong>4. PROTECTION</strong><small>permanent? active role? task target? owned? scripted?</small><span class="pipe-reject">protected: retry 0.5s</span></div>
+  <div class="pipe-node pipe-gate"><strong>4. PACER_2</strong><small>budget limiter, MCM-configurable interval (default 5s)</small><span class="pipe-reject">budget exhausted: skip</span></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node pipe-gate"><strong>5. EVAL</strong><small>per-cause rate limit, predicate evaluation</small><span class="pipe-reject">nil or rate limited: skip</span></div>
+  <div class="pipe-node pipe-gate"><strong>EVAL (cascade)</strong><small>per-cause rate limit, round-robin predicate evaluation, stop on first publish</small><span class="pipe-reject">nil or rate limited: try next cause</span></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node pipe-action"><strong>xbus publish</strong><small>cause event dispatched to all subscribers</small></div>
+  <div class="pipe-node pipe-action"><strong>xbus publish</strong><small>cause event dispatched to all subscribers (synchronous)</small></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node pipe-gate"><strong>Consumer gates</strong><small>global rate limit (radiant only), per-type rate limit, personality, enabled</small><span class="pipe-reject">gate failed: next handler</span></div>
+  <div class="pipe-node pipe-gate"><strong>Consumer gates</strong><small>global rate limit (radiant only), per-type rate limit, enabled condition</small><span class="pipe-reject">gate failed: next handler</span></div>
   <div class="pipe-arrow"></div>
-  <div class="pipe-node pipe-action"><strong>Handler</strong><small>find squads, script to target, arrival handler, PDA</small></div>
+  <div class="pipe-node pipe-action"><strong>Handler</strong><small>rules -> eval -> action: alignment, personality, find squads, script, record, PDA</small></div>
 </div>
 
 <h3 id="integrations">Potential integrations</h3>
