@@ -188,6 +188,8 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
         <li><a href="#collaboration">Two Mods Collaborating</a></li>
         <li><a href="#listen">Listen</a></li>
         <li><a href="#coordinate">Coordinate</a></li>
+        <li><a href="#warfare-tooltip">Warfare tooltip example</a></li>
+        <li><a href="#warfare-ownership">Warfare ownership example</a></li>
         <li><a href="#checklist">Checklist</a></li>
       </ol>
     </li>
@@ -481,11 +483,64 @@ end</code></pre>
   <tr><td>Broker</td><td><code>register_owner(name, filter_fn)</code></td><td>register ownership filter (replaces on name match)</td></tr>
   <tr><td>Broker</td><td><code>get_owner(squad)</code></td><td>ownership query</td></tr>
   <tr><td>Broker</td><td><code>record(squad_id, cause, consequence, opts)</code></td><td>record squad activity (markers, external queries)</td></tr>
-  <tr><td>Broker</td><td><code>get_record(squad_id)</code></td><td>activity record or nil</td></tr>
+  <tr><td>Broker</td><td><code>get_record(squad_id)</code></td><td>latest assigned activity record or nil</td></tr>
+  <tr><td>Broker</td><td><code>get_records(opts)</code></td><td>query FIFO with AND-logic field matching</td></tr>
+  <tr><td>Broker</td><td><code>register_activities(tbl)</code></td><td>register CONSEQUENCE -&gt; XML-id map for localized activity labels</td></tr>
+  <tr><td>Broker</td><td><code>get_activities()</code></td><td>CONSEQUENCE -&gt; XML-id map (read-only view)</td></tr>
   <tr><td>Broker</td><td><code>get_scripted_ids()</code></td><td>read-only scripted squads table</td></tr>
 </table>
 
 <p><strong>Important:</strong> <code>script_squad</code> has no inline protection check. Caller must verify with <code>is_protected</code>.</p>
+
+<h3 id="warfare-tooltip">Warfare map tooltip: display AP activity</h3>
+
+<p>Goal: when your warfare map UI hovers a squad, append what that squad is doing per AlifePlus ("investigating massacre", "holding outpost", "hunting a bleeder"). Labels are localized; both English and Russian ship with AP. Copy-paste example, warfare author edits only the call site at the bottom:</p>
+
+<pre><code>--- Return localized AP activity label for a squad, or nil if nothing to show.
+--- Graceful no-op when AlifePlus is absent, squad is owned by warfare, or squad has no record.
+local function get_ap_activity_label(squad_id)
+    if not ap_core_broker then return nil end
+
+    local record = ap_core_broker.get_record(squad_id)
+    if not record then return nil end
+
+    local activities = ap_core_broker.get_activities()
+    local label_id = activities and activities[record.consequence]
+    if not label_id then return nil end
+
+    local label = game.translate_string(label_id)
+    if not label or label == label_id or label == "" then return nil end
+    return label
+end
+
+-- Call site (warfare's tooltip builder, wherever you assemble the hover text):
+local ap_label = get_ap_activity_label(squad.id)
+if ap_label then
+    tooltip_text = tooltip_text .. "\n" .. ap_label
+end</code></pre>
+
+<p>Notes for warfare authors:</p>
+<ul>
+  <li>Call <code>get_record()</code> fresh on every render tick. Records mutate as squads move between consequences.</li>
+  <li>Don't cache the activity table; <code>get_activities()</code> returns a table reference, cost is one hash lookup.</li>
+  <li>Locale switch (English/Russian) works automatically because the resolve happens at render time via <code>game.translate_string</code>.</li>
+  <li>A nil return means the squad has no recent AP activity (or is warfare-owned). Render nothing.</li>
+  <li>Squads warfare owns are already excluded from AP via the ownership registry (<code>register_owner("warfare", ...)</code> is registered by default in <code>ap_core_compat</code>). They never enter the pipeline, never get a record, so <code>get_record</code> returns nil and you render nothing. No additional filtering needed on warfare's side.</li>
+</ul>
+
+<p>Typical label outputs (EN): "investigating massacre", "scavenging bodies", "reinforcing base", "evacuating base", "hunting bleeder", "holding outpost", "exploring", "resting", "camping", "at trader", "working anomalies". 36 labels total, one per AP consequence. Full map: <code>ap_ext_const.CONSEQUENCE_ACTIVITY</code> keys.</p>
+
+<h3 id="warfare-ownership">Warfare ownership: suppress AP for warfare-owned squads</h3>
+
+<p>If warfare overrides the default filter (to scope warfare ownership more precisely than <code>squad.registered_with_warfare</code>), re-register on <code>on_game_start</code>:</p>
+
+<pre><code>-- In warfare's on_game_start:
+ap_core_broker.register_owner("warfare", function(squad)
+    return squad.my_warfare_flag == true  -- whatever warfare actually uses
+end)</code></pre>
+
+<p><code>register_owner</code> replaces the existing filter on name match. This lets warfare scope ownership natively and override AP's default proxy. After registration, AP excludes matching squads at four layers (producer gate, cause predicate, <code>find_squads</code>, squad scripting), so warfare-owned squads are fully invisible to AP.</p>
+
 <h3 id="checklist">Checklist: Adding a New Cause + Consequence</h3>
 <ol>
   <li>Add <code>CAUSE.X</code> to ap_core_const CAUSE table</li>
