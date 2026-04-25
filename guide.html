@@ -325,7 +325,7 @@ local RESULT = ap_core_const.RESULT
 local REASON = ap_core_const.REASON
 local CONSEQUENCE = ap_core_const.CONSEQUENCE
 local CAUSE = ap_core_const.CAUSE
-local ACTION = ap_core_const.ACTION
+local PHASE = ap_core_const.CONSEQUENCE_PHASE
 local PERSONALITY = ap_ext_const.PERSONALITY
 local cfg = ap_core_mcm.cfg
 
@@ -365,7 +365,7 @@ local function _handler(event_data)
 
         -- ACTION: script squads, record activity
         local moved = {}
-        ap_core_debug.observe(trace, ACTION.MOVE_SQUAD, function()
+        ap_core_debug.observe(trace, PHASE.MOVE_SQUAD, function()
             for i = 1, #squads do
                 local res = ap_core_broker.script_squad(squads[i], smart, {
                     rush = cfg.consequence_ambush_setup_rush,
@@ -483,52 +483,56 @@ end</code></pre>
   <tr><td>Broker</td><td><code>register_owner(name, filter_fn)</code></td><td>register ownership filter (replaces on name match)</td></tr>
   <tr><td>Broker</td><td><code>get_owner(squad)</code></td><td>ownership query</td></tr>
   <tr><td>Broker</td><td><code>record(squad_id, cause, consequence, opts)</code></td><td>record squad activity (markers, external queries)</td></tr>
-  <tr><td>Broker</td><td><code>get_record(squad_id)</code></td><td>latest assigned activity record or nil</td></tr>
-  <tr><td>Broker</td><td><code>get_records(opts)</code></td><td>query FIFO with AND-logic field matching</td></tr>
-  <tr><td>Broker</td><td><code>register_activities(tbl)</code></td><td>register CONSEQUENCE -&gt; XML-id map for localized activity labels</td></tr>
-  <tr><td>Broker</td><td><code>get_activities()</code></td><td>CONSEQUENCE -&gt; XML-id map (read-only view)</td></tr>
+  <tr><td>Broker</td><td><code>get_record(opts)</code></td><td>most-recent record matching opts (AND-logic). <code>{ squad_id, assigned = true }</code> is O(1)</td></tr>
+  <tr><td>Broker</td><td><code>get_records(opts)</code></td><td>array of records matching opts. <code>{ assigned = true }</code> reads live entries only</td></tr>
+  <tr><td>Broker</td><td><code>clear_record(squad_id)</code></td><td>clear assigned entry on entity death (pure entry drop)</td></tr>
+  <tr><td>Broker</td><td><code>register_arrival_handler(key, fn)</code></td><td>register on-arrival callback by key</td></tr>
   <tr><td>Broker</td><td><code>get_scripted_ids()</code></td><td>read-only scripted squads table</td></tr>
+  <tr><td>Const</td><td><code>ap_core_const.CONSEQUENCE_INFO</code></td><td>static <code>CONSEQUENCE -&gt; { name_key, action_key }</code> for localized rendering</td></tr>
+  <tr><td>Const</td><td><code>ap_core_const.CONSEQUENCE</code></td><td>enum of consequence keys; match against <code>record.consequence</code></td></tr>
+  <tr><td>Const</td><td><code>ap_core_const.CAUSE</code></td><td>enum of cause event names; use as xbus event keys</td></tr>
+  <tr><td>Const</td><td><code>ap_core_const.CONSEQUENCE_PHASE</code></td><td>trace sub-phase enum (FIND_TARGETS, MOVE_SQUAD, ARRIVE, ...). DEBUG traces only</td></tr>
 </table>
 
 <p><strong>Important:</strong> <code>script_squad</code> has no inline protection check. Caller must verify with <code>is_protected</code>.</p>
 
-<h3 id="warfare-tooltip">Warfare map tooltip: display AP activity</h3>
+<h3 id="warfare-tooltip">Warfare map tooltip: display AP action</h3>
 
-<p>Goal: when your warfare map UI hovers a squad, append what that squad is doing per AlifePlus ("investigating massacre", "holding outpost", "hunting a bleeder"). Labels are localized; both English and Russian ship with AP. Copy-paste example, warfare author edits only the call site at the bottom:</p>
+<p>Goal: when your warfare map UI hovers a squad, append what that squad is doing per AlifePlus ("Investigating a Massacre Site", "Guarding an Outpost", "Hunting the Wounded"). Strings are localized; both English and Russian ship with AP. Copy-paste example, warfare author edits only the call site at the bottom:</p>
 
-<pre><code>--- Return localized AP activity label for a squad, or nil if nothing to show.
+<pre><code>--- Return localized AP action phrase for a squad, or nil if nothing to show.
 --- Graceful no-op when AlifePlus is absent, squad is owned by warfare, or squad has no record.
-local function get_ap_activity_label(squad_id)
-    if not ap_core_broker then return nil end
+local function get_ap_action(squad_id)
+    if not ap_core_broker or not ap_core_const then return nil end
 
-    local record = ap_core_broker.get_record(squad_id)
+    local record = ap_core_broker.get_record({ squad_id = squad_id, assigned = true })
     if not record then return nil end
 
-    local activities = ap_core_broker.get_activities()
-    local label_id = activities and activities[record.consequence]
-    if not label_id then return nil end
+    local info = ap_core_const.CONSEQUENCE_INFO[record.consequence]
+    if not info then return nil end
 
-    local label = game.translate_string(label_id)
-    if not label or label == label_id or label == "" then return nil end
-    return label
+    local text = game.translate_string(info.action_key)
+    if not text or text == info.action_key or text == "" then return nil end
+    return text
 end
 
 -- Call site (warfare's tooltip builder, wherever you assemble the hover text):
-local ap_label = get_ap_activity_label(squad.id)
-if ap_label then
-    tooltip_text = tooltip_text .. "\n" .. ap_label
+local ap_action = get_ap_action(squad.id)
+if ap_action then
+    tooltip_text = tooltip_text .. "\n" .. ap_action
 end</code></pre>
 
 <p>Notes for warfare authors:</p>
 <ul>
-  <li>Call <code>get_record()</code> fresh on every render tick. Records mutate as squads move between consequences.</li>
-  <li>Don't cache the activity table; <code>get_activities()</code> returns a table reference, cost is one hash lookup.</li>
+  <li>Call <code>get_record</code> fresh on every render tick. Records mutate as squads move between consequences.</li>
+  <li><code>ap_core_const.CONSEQUENCE_INFO</code> is a static const table -- read it directly, don't cache.</li>
+  <li>Each entry has <code>action_key</code> (full phrase shown to the player) and <code>name_key</code> (short caption for config / debug). Pick whichever fits your UI.</li>
   <li>Locale switch (English/Russian) works automatically because the resolve happens at render time via <code>game.translate_string</code>.</li>
   <li>A nil return means the squad has no recent AP activity (or is warfare-owned). Render nothing.</li>
   <li>Squads warfare owns are already excluded from AP via the ownership registry (<code>register_owner("warfare", ...)</code> is registered by default in <code>ap_core_compat</code>). They never enter the pipeline, never get a record, so <code>get_record</code> returns nil and you render nothing. No additional filtering needed on warfare's side.</li>
 </ul>
 
-<p>Typical label outputs (EN): "investigating massacre", "scavenging bodies", "reinforcing base", "evacuating base", "hunting bleeder", "holding outpost", "exploring", "resting", "camping", "at trader", "working anomalies". 36 labels total, one per AP consequence. Full map: <code>ap_ext_const.CONSEQUENCE_ACTIVITY</code> keys.</p>
+<p>Typical action outputs (EN): "Investigating a Massacre Site", "Scavenging a Massacre Site", "Reinforcing Attacked Base", "Evacuating Attacked Base", "Hunting the Wounded", "Guarding an Outpost", "Out Exploring", "Heading to a Campfire to Rest", "Restocking at Trader", "Harvesting Artefacts". 36 entries total, one per AP consequence. Full map: <code>ap_core_const.CONSEQUENCE_INFO</code> keys.</p>
 
 <h3 id="warfare-ownership">Warfare ownership: suppress AP for warfare-owned squads</h3>
 
