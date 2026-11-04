@@ -302,24 +302,31 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
 
 <header>
   <h1>SISKI ALIFE: Code Theft and License Violation Report</h1>
-  <p>Damian Sirbu, xlibs and AlifePlus developer &middot; Last updated: 2026-04-15 &middot; Subject: SISKI ALIFE mod by qkff99</p>
+  <p>Damian Sirbu, xlibs and AlifePlus developer &middot; Last updated: 2026-11-04 &middot; Subject: SISKI ALIFE mod by qkff99</p>
   <p style="font-size:12px;color:var(--fg-dim)">ModDB: <a href="https://www.moddb.com/mods/stalker-anomaly/addons/reznya">SISKI ALIFE (Reznya)</a> &middot; <a href="https://www.moddb.com/mods/stalker-anomaly/addons/siski-nano-size-alife-anomaly-153">SISKI Nano</a> &middot; GitHub: <a href="https://github.com/qkff99/siski">qkff99/siski</a></p>
 </header>
 
 <div class="callout key" id="dispute">
-<strong>Status: Removed from ModDB on 2026-04-19. The author's appeal was rejected on 2026-04-26.</strong>
+<strong>Status: Removed by GitHub on 2026-08-28 (DMCA #4214814, accepted) and by ModDB on 2026-04-19 (appeal rejected 2026-04-26). Relaunched under a new name, ZHOPA ALIFE 2, with its code hidden as compiled bytecode.</strong>
 <table style="margin-top:10px; margin-bottom:6px">
   <tr><th style="width:14em">Date</th><th>Event</th></tr>
+  <tr><td>2026-03-31</td><td>DMCA takedown notice filed with GitHub (Ticket #4214814)</td></tr>
   <tr><td>2026-04-05</td><td>Copyright complaint filed with ModDB</td></tr>
   <tr><td>2026-04-19</td><td>Mod removed from ModDB after a thirteen-day review</td></tr>
   <tr><td>2026-04-19 to 04-26</td><td>qkff99 appeals. Contests publication order, MIT license coverage, and originality of his code.</td></tr>
   <tr><td>2026-04-26</td><td>DBolical: "we won't be overturning the decision based on current circumstances." Settlement terms imposed: apology, no-contact undertaking, mod rework, mod rename.</td></tr>
+  <tr><td>2026-08-28</td><td>GitHub Trust &amp; Safety: "GitHub has accepted the DMCA takedown notice and removed the infringing content." Repository removed as a "derivative of xlibs and AlifePlus by Damian Sirbu."</td></tr>
+  <tr><td>after the rename</td><td>Relaunched as ZHOPA ALIFE 2, shipping its logic as compiled LuaJIT bytecode behind a decoy loader &mdash; no source, and it resists decompilation &mdash; so the derived code can no longer be read or compared.</td></tr>
 </table>
 <img class="thumb" src="img/moddb-siski-final.jpg" alt="ModDB appeal-rejected email, 2026-04-26" style="max-width:480px; margin-top:8px; border:1px solid var(--border); border-radius:4px">
 </div>
 
 <div class="callout warn">
 <strong>The "synergy" framing is a cover for systematic code theft.</strong> SISKI (by qkff99) and APS ("AlifePlus SISKI Synergy", by a different author, forTheMonolith) are marketed as complementary tools that work alongside AlifePlus. In reality, SISKI's core infrastructure &mdash; the event bus, the AP bridge, the callback factory &mdash; was copied directly from AlifePlus and xlibs source code using an AI agent. APS then copies AlifePlus's internal architecture, conventions, terminology, and feature designs iteration by iteration, feeding AP's development documents to the same AI. The patterns both mods use <a href="aps.html#uniqueness">exist nowhere else</a> in the STALKER modding ecosystem. This is not collaboration or integration &mdash; it is cloning disguised as compatibility.
+</div>
+
+<div class="callout warn">
+<strong>The mod did not stop &mdash; it was renamed and its code hidden.</strong> After ModDB forced a rename, qkff99 relaunched the same mod as <a href="https://www.moddb.com/mods/stalker-anomaly/addons/zhopa-alife-2" target="_blank" rel="noopener">ZHOPA ALIFE 2</a>. Its real logic no longer ships as source: each script is a five-line decoy stub that loads a compiled LuaJIT bytecode file (<code>zhopa.script.ljbc</code>, header <code>1B 4C 4A 01</code>). The bytecode resists decompilation &mdash; no method I tried, in-game or offline, recovered readable code &mdash; and nothing in the mod or its ModDB page discloses that the code is compiled and hidden. A mod with nothing to hide ships readable scripts. Concealing the code on a mod two platforms already pulled for copying serves one purpose: to block the comparison that lost him the repository.
 </div>
 
 <div class="callout note">
@@ -346,7 +353,7 @@ h2 .anchor:hover, h3 .anchor:hover { opacity: 1; color: var(--blue); }
 
 <p><strong>Actions taken:</strong></p>
 <ul>
-  <li><strong>DMCA Takedown Notice</strong> filed with GitHub Trust &amp; Safety (Ticket #4214814, revised April 3) &mdash; identifies infringing files, bus references, and the foundational nature of the copied architecture. Under review.</li>
+  <li><strong>DMCA Takedown Notice</strong> filed with GitHub Trust &amp; Safety (Ticket #4214814, revised April 3) &mdash; identifies infringing files, bus references, and the foundational nature of the copied architecture. <strong>Accepted on 2026-08-28: GitHub removed the repository as a "derivative of xlibs and AlifePlus by Damian Sirbu."</strong></li>
   <li><strong>Abuse Report</strong> filed with GitHub Trust &amp; Safety &mdash; documents coordinated harassment, organized campaign to "strike, shame, ban, ruin"</li>
   <li><strong>Terms of Service violation report</strong> submitted to ModDB &mdash; coordinated downvote campaign confirmed by ModDB staff, warnings and access restrictions issued to qkff99</li>
 </ul>
@@ -390,7 +397,7 @@ git show 6e0fb89:gamedata/scripts/siski_core.script | grep RegisterScriptCallbac
   <li>If the above is not feasible: takedown of the infringing repository and ModDB page</li>
 </ol>
 <div class="callout note">
-<strong>If they fix it.</strong> If the author complies with items 1&ndash;3, this report will be updated to reflect compliance and the DMCA claim will be withdrawn. The goal is attribution and legitimate use, not punishment.
+<strong>Update.</strong> The offer above stood for months. Instead of adding attribution, the author kept the code: GitHub accepted the DMCA and removed the repository on 2026-08-28, ModDB removed the upload, and he relaunched the same mod as ZHOPA ALIFE 2 with its code hidden as compiled bytecode. What is sought now is simply that the copied work stays down and is not re-shipped under new names.
 </div>
 </section>
 
@@ -439,6 +446,14 @@ git show 6e0fb89:gamedata/scripts/siski_core.script | grep RegisterScriptCallbac
   <img class="thumb" src="img/screenshot.32.jpg" alt="ModDB admission" style="max-width:320px">
   <img class="thumb" src="img/bazinga-admission.jpg" alt="Community recognition" style="max-width:320px">
 </div>
+
+<h3>Discord: admits erasing the copied lines after the takedown</h3>
+<p>The day after GitHub removed the repository (2026-08-28), qkff99 explained on Discord why a fresh comparison would no longer match:</p>
+<blockquote>
+  "because I erased the lines the Romanian stole from me, so now the code doesn't match and his takedowns are just a fart in a puddle"<br>
+  <small>(Original Russian: "potomu chto ya ster strochki kotorye spizdil u menya rumyn i teper' kod ne sovpadaet i ego teyki teper' eto prosto puk v luzhu")</small>
+</blockquote>
+<p>The admission is twofold: the lines existed and matched, and he altered them after the ruling to defeat any later comparison. He frames it as the Romanian stealing from him &mdash; the reverse of what GitHub and ModDB both found.</p>
 </section>
 
 <!-- 2. TIMELINE & LICENSE -->
@@ -1147,7 +1162,11 @@ local debugx = false -- "M" sets update and respawn times...</code></pre>
 <section id="harassment">
 <h2>Retaliation and Platform Interventions</h2>
 
-<p>Following publication of AlifePlus, a coordinated effort was organized across Discord and ModDB to accuse the AlifePlus author of copying from SISKI.</p>
+<p>Following publication of AlifePlus, a coordinated effort was organized across the GAMMA and AOEngine Discord servers and ModDB to accuse the AlifePlus author of copying from SISKI. It did not stop with the takedowns. It has run for eight months, from March through November 2026, and the people who drive it hold moderator, tester, and developer roles on both servers &mdash; the same accounts appear under the same names on each.</p>
+
+<div class="callout key">
+<strong>2026-11-04: permanently banned from GAMMA for replying to the defamation.</strong> Less than a minute after I wrote that I would report the campaign to Discord &mdash; and named the slip where the <code>Jack_Harris</code> and <code>qkff99</code> accounts posted from one login &mdash; a GAMMA moderator (Fox Eternal) permanently banned me and erased everything I had written. The written reason concedes the server is full of bullies, then removes me, the target, while the bullies stay, and mocks my profession. I broke no rule; my replies came only when others named me, each contesting a false claim or asking them to stop.
+</div>
 
 <h3>Coordinated call to action</h3>
 <p>An administrator of the AOEngine Discord server posted:</p>
@@ -1176,11 +1195,24 @@ local debugx = false -- "M" sets update and respawn times...</code></pre>
 </div>
 <p class="caption">False accusation posted on the AlifePlus ModDB page.</p>
 
+<h3>Impersonation and shared accounts</h3>
+<p>An account on the AOEngine server uses my name and avatar to pose as me. It carries the admin-granted "Modder" and "siski-gang" roles and lists a fake "download AlifePlus here" link in its profile, pointing to a server the group controls. It has posted 428 times as me, including a fabricated confession that my mod crashes. I was banned from that server in March and never posted there, so every post from the account is impersonation.</p>
+<p>At least one member operates more than one account: he posted the identical message under two different names a minute apart, then wrote that he had forgotten to log out. They also run a honeypot channel named "alife-plus-support" whose bot kicks anyone who posts in it &mdash; 101 kicks so far.</p>
+<div class="img-row">
+  <img class="thumb" src="img/impersonator-profile-damian-sirbu.jpg" alt="Impersonator profile using my name, with Modder and siski-gang roles and a fake download link" style="max-width:32%">
+  <img class="thumb" src="img/honeypot-alife-plus-support.jpg" alt="Honeypot channel alife-plus-support, 101 kicks" style="max-width:32%">
+</div>
+<p class="caption">Left: the impersonator profile (my name and avatar, "Modder" and "siski-gang" roles, fake download link, 428 posts). Right: the "alife-plus-support" honeypot bot, 101 kicks.</p>
+
+<h3>Fabricated faults presented as fact</h3>
+<p>For eight months the group has blamed any in-game bug on my mods and invented faults the mods cannot cause, feeding it to new users as fact. A written "review" by Jack_Harris, amplified in the channel, claims my mods cause "untracable save data corruption crashes," will "permanently brick your saves," and have been "just deleting active task characters." None of this is true, and they never supplied a log or a reproduction. My mods ship full tracing, so "untracable" is the opposite of true, and they blame my mods for systems the mods do not control. On both servers they also attack my nationality, using "the Romanian" and "gypsy" as slurs.</p>
+
 <h3>Platform response</h3>
 <ul>
   <li><strong>2026-03-21:</strong> ModDB issued qkff99 a warning: "I have issued this user a warning, if it continues please let us know and we will escalate."</li>
   <li><strong>2026-03-22:</strong> ModDB escalated: "We have escalated by restricting access, and at the final warning before a ban will be issued if it persists."</li>
   <li>ModDB/DBolical support confirmed coordinated downvote investigation: "We will remove and ban the false downvote accounts."</li>
+  <li><strong>2026-08-28:</strong> GitHub Trust &amp; Safety accepted the DMCA notice (#4214814) and removed the repository as a derivative of xlibs and AlifePlus (see status, top).</li>
   <li>The AlifePlus author was banned from the AOEngine Discord server despite never having posted a message there. The code copying occurred while banned. Unbanned after the copying was done.</li>
   <li>YouTube slander extended to unrelated STALKER videos.</li>
   <li>Personal attacks extended to the author's LinkedIn profile.</li>
